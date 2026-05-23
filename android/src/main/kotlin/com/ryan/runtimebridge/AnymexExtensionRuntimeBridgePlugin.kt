@@ -192,7 +192,22 @@ class AnymexExtensionRuntimeBridgePlugin : FlutterPlugin, ActivityAware {
             Log.d(TAG, "bridgeClass loaded: $bridgeClass")
             runtimeBridge = bridgeClass!!.getField("INSTANCE").get(null)
             
-            Log.i(TAG, "AnymeX Runtime Bridge initialized successfully.")
+            try {
+                val loggerClass = loader.loadClass("com.anymex.runtimehost.Logger")
+                val setLogCallbackMethod = loggerClass.getMethod("setLogCallback", Any::class.java, Method::class.java)
+                val ourLogMethod = AnymexExtensionRuntimeBridgePlugin::class.java.getMethod(
+                    "logFromHost",
+                    String::class.java,
+                    String::class.java,
+                    String::class.java
+                )
+                setLogCallbackMethod.invoke(null, this, ourLogMethod)
+                Log.i(TAG, "Logger callback registered successfully.")
+            } catch (e: Throwable) {
+                Log.e(TAG, "Failed to register Logger callback: ${e.message}")
+            }
+
+            Log.i(TAG, "AnymeX Runtime Bridge initialized successfully")
             
             try {
                 call("initialize", ctx, settingsMap)
@@ -523,6 +538,10 @@ class AnymexExtensionRuntimeBridgePlugin : FlutterPlugin, ActivityAware {
 
     private val logQueue = mutableListOf<Map<String, String>>()
     private var flutterReady = false
+
+    fun logFromHost(level: String, tag: String, message: String) {
+        logToFlutter(level, tag, message)
+    }
 
     private fun logToFlutter(level: String, tag: String, message: String) {
         scope.launch(Dispatchers.Main) {
