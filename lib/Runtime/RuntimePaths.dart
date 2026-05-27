@@ -9,7 +9,7 @@ class RuntimePaths {
   RuntimePaths._internal();
 
   Future<Directory> get runtimeDir async {
-    final isDocsBased = Platform.isWindows || Platform.isAndroid;
+    final isDocsBased = Platform.isWindows || Platform.isAndroid || Platform.isLinux || Platform.isMacOS;
     final baseDir = isDocsBased
         ? await getApplicationDocumentsDirectory()
         : await getApplicationSupportDirectory();

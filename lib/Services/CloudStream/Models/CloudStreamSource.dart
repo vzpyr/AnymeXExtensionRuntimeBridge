@@ -24,13 +24,14 @@ class CloudStreamSource extends Source {
   });
 
   factory CloudStreamSource.fromJson(Map<String, dynamic> json) {
+    final language = json['language'] as String?;
     return CloudStreamSource(
       id: json['id']?.toString().toLowerCase() ??
           json['name']?.toString().toLowerCase() ??
           '',
       name: json['name'],
       baseUrl: json['url'],
-      lang: json['language'],
+      lang: (language == null || language.trim().isEmpty) ? 'ALL' : language,
       iconUrl: json['iconUrl'],
       isNsfw: json['isNsfw'] ?? false,
       version: json['version']?.toString() ?? "1.0.0",

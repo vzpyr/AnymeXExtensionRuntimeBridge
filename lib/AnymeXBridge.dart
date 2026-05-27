@@ -155,4 +155,14 @@ class AnymeXRuntimeBridge {
       return await BridgeDispatcher().cancelRequest(token);
     }
   }
+
+  static String get installedVersion => getVal<String>('runtime_host_installed_version', defaultValue: '') ?? '';
+  static String get installedReleaseTitle => getVal<String>('runtime_host_installed_release_title', defaultValue: '') ?? '';
+  static bool get isPluginInstalled => installedVersion.isNotEmpty;
+
+  static void setInstalledRelease(String version, String title) {
+    setVal('runtime_host_installed_version', version);
+    setVal('runtime_host_installed_release_title', title);
+  }
 }
+

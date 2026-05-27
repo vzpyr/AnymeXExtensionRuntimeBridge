@@ -19,6 +19,12 @@ Map<String, dynamic> _decodeJsonMap(String body) =>
 
 String _encodeCloudStreamMeta(Map<String, dynamic> data) => jsonEncode(data);
 
+String _normalizeName(String? name) {
+  if (name == null) return '';
+  return name.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '').toLowerCase();
+}
+
+
 List<CloudStreamSource> _hydrateCloudStreamSources(Map<String, dynamic> args) {
   final List<dynamic> result = args['result'];
   final Map<String, String?> metas = args['metas'];
@@ -123,16 +129,21 @@ class CloudStreamExtensions extends Extension {
     }
 
     final installedNames =
-        installedAnimeExtensions.value.map((e) => e.name).toSet();
+        installedAnimeExtensions.value.map((e) => _normalizeName(e.name)).toSet();
     final installedInternalNames = installedAnimeExtensions.value
         .map((e) => (e as CloudStreamSource).internalName)
         .where((name) => name != null)
+        .map((name) => _normalizeName(name))
         .toSet();
 
     availableAnimeExtensions.value = allAvailable.where((s) {
       final source = s as CloudStreamSource;
-      return !installedNames.contains(source.name) &&
-          !installedInternalNames.contains(source.internalName);
+      final normName = _normalizeName(source.name);
+      final normInternalName = _normalizeName(source.internalName);
+      return !installedNames.contains(normName) &&
+          !installedInternalNames.contains(normName) &&
+          !installedNames.contains(normInternalName) &&
+          !installedInternalNames.contains(normInternalName);
     }).toList();
   }
 
@@ -152,8 +163,15 @@ class CloudStreamExtensions extends Extension {
       final metas = <String, String?>{};
       for (final e in result) {
         final map = Map<String, dynamic>.from(e);
-        final internalName = map['internalName'] ?? map['name'];
-        metas[internalName as String] = getVal<String>('cs_meta_$internalName');
+        final internalName = map['internalName'] ?? map['name'] as String?;
+        if (internalName != null) {
+          final norm = _normalizeName(internalName);
+          var metaStr = getVal<String>('cs_meta_$norm');
+          if (metaStr == null || metaStr.isEmpty) {
+            metaStr = getVal<String>('cs_meta_$internalName');
+          }
+          metas[internalName] = metaStr;
+        }
       }
 
       final sources = await compute(_hydrateCloudStreamSources, {
@@ -217,6 +235,8 @@ class CloudStreamExtensions extends Extension {
             'repo': source.repo,
           };
           final encodedMeta = await compute(_encodeCloudStreamMeta, metaToSave);
+          final norm = _normalizeName(source.internalName ?? source.name);
+          setVal('cs_meta_$norm', encodedMeta);
           setVal('cs_meta_${source.internalName ?? source.name}', encodedMeta);
 
           await fetchInstalledAnimeExtensions();
@@ -255,6 +275,8 @@ class CloudStreamExtensions extends Extension {
             'repositoryUrl': source.repo ?? '',
           },
         );
+        final norm = _normalizeName(source.internalName ?? source.name);
+        await KvStore.remove('cs_meta_$norm');
         await KvStore.remove('cs_meta_${source.internalName ?? source.name}');
         Logger.log(
             "Successfully uninstalled CloudStream plugin: ${source.name}");
