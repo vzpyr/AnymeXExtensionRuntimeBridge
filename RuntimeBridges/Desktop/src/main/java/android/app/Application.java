@@ -1,7 +1,7 @@
 package android.app;
 
-import android.content.Context;
+import android.content.ContextWrapper;
 
-public class Application extends Context {
+public class Application extends ContextWrapper {
     
 }
