@@ -252,12 +252,84 @@ fun main(args: Array<String>) = runBlocking {
                             }
                             "completed"
                         }
+                        "kotatsuLoadExtensions" -> {
+                            val path = getSafeString("folderPath")
+                            com.anymex.desktop.kotatsu.KotatsuExtensionLoader.loadExtensions(path)
+                        }
+                        "kotatsuGetPopular" -> {
+                            val sourceId = getSafeString("sourceId")
+                            val page = getSafeInt("page", 1)
+                            com.anymex.desktop.kotatsu.KotatsuExtensionLoader.getPopular(sourceId, page)
+                        }
+                        "kotatsuGetLatestUpdates" -> {
+                            val sourceId = getSafeString("sourceId")
+                            val page = getSafeInt("page", 1)
+                            com.anymex.desktop.kotatsu.KotatsuExtensionLoader.getLatestUpdates(sourceId, page)
+                        }
+                        "kotatsuSearch" -> {
+                            val sourceId = getSafeString("sourceId")
+                            val query = getSafeString("query")
+                            val page = getSafeInt("page", 1)
+                            com.anymex.desktop.kotatsu.KotatsuExtensionLoader.search(sourceId, query, page)
+                        }
+                        "kotatsuGetDetail" -> {
+                            val sourceId = getSafeString("sourceId")
+                            val media = methodArgs.getAsJsonObject("media") ?: JsonObject()
+                            val url = media.get("url")?.let { if (it.isJsonPrimitive) it.asString else "" } ?: ""
+                            val title = media.get("title")?.let { if (it.isJsonPrimitive) it.asString else "" } ?: ""
+                            val cover = media.get("thumbnail_url")?.let { if (it.isJsonPrimitive) it.asString else "" } ?: ""
+                            com.anymex.desktop.kotatsu.KotatsuExtensionLoader.getDetails(sourceId, url, title, cover)
+                        }
+                        "kotatsuGetPageList" -> {
+                            val sourceId = getSafeString("sourceId")
+                            val episode = methodArgs.getAsJsonObject("episode") ?: JsonObject()
+                            val url = episode.get("url")?.let { if (it.isJsonPrimitive) it.asString else "" } ?: ""
+                            val name = episode.get("name")?.let { if (it.isJsonPrimitive) it.asString else "" } ?: ""
+                            com.anymex.desktop.kotatsu.KotatsuExtensionLoader.getPageList(sourceId, url, name)
+                        }
+                        "setCookies" -> {
+                            val url = getSafeString("url")
+                            val cookieString = getSafeString("cookieString")
+                            if (url.isBlank() || cookieString.isBlank()) {
+                                "{\"error\": \"url and cookieString are required\"}"
+                            } else {
+                                try {
+                                    val uri = java.net.URI(url)
+                                    cookieString.split(";").map { it.trim() }.filter { it.isNotEmpty() }.forEach { cookie ->
+                                        NetworkHelper.sharedCookieManager.cookieStore.add(uri, java.net.HttpCookie.parse("Set-Cookie: $cookie").firstOrNull() ?: return@forEach)
+                                    }
+                                    System.err.println("[RPC] setCookies: injected ${cookieString.split(";").size} cookie(s) for $url")
+                                    "ok"
+                                } catch (e: Exception) {
+                                    System.err.println("[RPC] setCookies error: ${e.message}")
+                                    "{\"error\": \"${e.message}\"}"
+                                }
+                            }
+                        }
+                        "setUserAgent" -> {
+                            val url = getSafeString("url")
+                            val userAgent = getSafeString("userAgent")
+                            if (url.isBlank() || userAgent.isBlank()) {
+                                "{\"error\": \"url and userAgent are required\"}"
+                            } else {
+                                try {
+                                    val host = java.net.URI(url).host ?: url
+                                    System.setProperty("anymex.ua.$host", userAgent)
+                                    System.err.println("[RPC] setUserAgent: stored UA for host=$host")
+                                    "ok"
+                                } catch (e: Exception) {
+                                    System.err.println("[RPC] setUserAgent error: ${e.message}")
+                                    "{\"error\": \"${e.message}\"}"
+                                }
+                            }
+                        }
                         "ping" -> "pong"
                         "exit" -> {
                             System.exit(0)
                             ""
                         }
                         else -> "{\"error\": \"Unknown method: $method\"}"
+
                     }
                 }
 

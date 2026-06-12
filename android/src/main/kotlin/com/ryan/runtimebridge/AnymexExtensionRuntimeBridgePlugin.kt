@@ -37,6 +37,7 @@ class AnymexExtensionRuntimeBridgePlugin : FlutterPlugin, ActivityAware {
     private lateinit var anymeXChannel: MethodChannel
     private lateinit var aniyomiChannel: MethodChannel
     private lateinit var cloudStreamChannel: MethodChannel
+    private lateinit var kotatsuChannel: MethodChannel
     private lateinit var videoStreamEventChannel: EventChannel
     private lateinit var loggingChannel: MethodChannel
 
@@ -62,6 +63,9 @@ class AnymexExtensionRuntimeBridgePlugin : FlutterPlugin, ActivityAware {
 
         cloudStreamChannel = MethodChannel(binding.binaryMessenger, "cloudstreamExtensionBridge")
         cloudStreamChannel.setMethodCallHandler { call, result -> handleCloudStream(call, result) }
+
+        kotatsuChannel = MethodChannel(binding.binaryMessenger, "kotatsuExtensionBridge")
+        kotatsuChannel.setMethodCallHandler { call, result -> handleKotatsu(call, result) }
 
         videoStreamEventChannel = EventChannel(binding.binaryMessenger, "cloudstreamExtensionBridge/videoStream")
         videoStreamEventChannel.setStreamHandler(object : EventChannel.StreamHandler {
@@ -103,6 +107,7 @@ class AnymexExtensionRuntimeBridgePlugin : FlutterPlugin, ActivityAware {
         anymeXChannel.setMethodCallHandler(null)
         aniyomiChannel.setMethodCallHandler(null)
         cloudStreamChannel.setMethodCallHandler(null)
+        kotatsuChannel.setMethodCallHandler(null)
         videoStreamEventChannel.setStreamHandler(null)
         videoStreamJob?.cancel()
         scope.cancel()
@@ -259,7 +264,46 @@ class AnymexExtensionRuntimeBridgePlugin : FlutterPlugin, ActivityAware {
                     result.error("INVALID_ARG", "token is required", null)
                 }
             }
+            "setCookies" -> {
+                val url = call.argument<String>("url")
+                val cookieString = call.argument<String>("cookieString")
+                if (url.isNullOrBlank() || cookieString == null) {
+                    result.error("INVALID_ARG", "url and cookieString are required", null)
+                    return
+                }
+                try {
+                    val mgr = android.webkit.CookieManager.getInstance()
+                    mgr.setAcceptCookie(true)
+                    cookieString.split(";").map { it.trim() }.filter { it.isNotEmpty() }.forEach { cookie ->
+                        mgr.setCookie(url, cookie)
+                    }
+                    mgr.flush()
+                    Log.d(TAG, "setCookies: applied ${cookieString.split(";").size} cookie(s) for $url")
+                    result.success(null)
+                } catch (e: Exception) {
+                    Log.e(TAG, "setCookies failed: ${e.message}")
+                    result.error("COOKIE_ERROR", e.message, null)
+                }
+            }
+            "setUserAgent" -> {
+                val url = call.argument<String>("url")
+                val userAgent = call.argument<String>("userAgent")
+                if (url.isNullOrBlank() || userAgent.isNullOrBlank()) {
+                    result.error("INVALID_ARG", "url and userAgent are required", null)
+                    return
+                }
+                try {
+                    val host = android.net.Uri.parse(url).host ?: url
+                    System.setProperty("anymex.ua.$host", userAgent)
+                    Log.d(TAG, "setUserAgent: stored UA for host=$host")
+                    result.success(null)
+                } catch (e: Exception) {
+                    Log.e(TAG, "setUserAgent failed: ${e.message}")
+                    result.error("UA_ERROR", e.message, null)
+                }
+            }
             else -> result.notImplemented()
+
         }
     }
 
@@ -276,7 +320,30 @@ class AnymexExtensionRuntimeBridgePlugin : FlutterPlugin, ActivityAware {
                         call("getInstalledAnimeExtensions", ctx, path)
                     }
                     "getInstalledMangaExtensions" -> {
-                        call("getInstalledMangaExtensions", ctx)
+                        val path = call.arguments as? String?
+                        call("getInstalledMangaExtensions", ctx, path)
+                    }
+                    "installSourceInternal" -> {
+                        val apkPath = call.argument<String>("apkPath")
+                        val isAnime = call.argument<Boolean>("isAnime") ?: true
+                        if (apkPath.isNullOrBlank()) {
+                            result.error("INVALID_ARG", "apkPath is required", null)
+                            return@launch
+                        }
+                        val success = installSourceInternal(ctx, apkPath, isAnime)
+                        withContext(Dispatchers.Main) { result.success(success) }
+                        return@launch
+                    }
+                    "uninstallSourceInternal" -> {
+                        val packageName = call.argument<String>("packageName")
+                        val isAnime = call.argument<Boolean>("isAnime") ?: true
+                        if (packageName.isNullOrBlank()) {
+                            result.error("INVALID_ARG", "packageName is required", null)
+                            return@launch
+                        }
+                        val success = uninstallSourceInternal(ctx, packageName, isAnime)
+                        withContext(Dispatchers.Main) { result.success(success) }
+                        return@launch
                     }
                     "getPopular" -> {
                         val args = call.arguments as Map<*, *>
@@ -554,6 +621,112 @@ class AnymexExtensionRuntimeBridgePlugin : FlutterPlugin, ActivityAware {
                 logQueue.add(logMap)
                 if (logQueue.size > 2000) logQueue.removeAt(0)
             }
+        }
+    }
+
+    private fun handleKotatsu(call: MethodCall, result: MethodResult) {
+        if (!ensureLoaded(result)) return
+        val ctx = effectiveContext() ?: return result.error("NO_CTX", "No context", null)
+
+        scope.launch {
+            try {
+                val res: Any? = when (call.method) {
+                    "loadExtensions" -> {
+                        val path = call.argument<String>("folderPath")
+                        call("kotatsuLoadExtensions", ctx, path)
+                    }
+                    "getPopular" -> {
+                        call("kotatsuGetPopular", ctx,
+                            call.argument<String>("sourceId") ?: "",
+                            call.argument<Int>("page") ?: 1)
+                    }
+                    "getLatestUpdates" -> {
+                        call("kotatsuGetLatestUpdates", ctx,
+                            call.argument<String>("sourceId") ?: "",
+                            call.argument<Int>("page") ?: 1)
+                    }
+                    "search" -> {
+                        call("kotatsuSearch", ctx,
+                            call.argument<String>("sourceId") ?: "",
+                            call.argument<String>("query") ?: "",
+                            call.argument<Int>("page") ?: 1)
+                    }
+                    "getDetail" -> {
+                        call("kotatsuGetDetail", ctx,
+                            call.argument<String>("sourceId") ?: "",
+                            call.argument<String>("url") ?: "",
+                            call.argument<String>("title") ?: "",
+                            call.argument<String>("cover") ?: "")
+                    }
+                    "getPageList" -> {
+                        call("kotatsuGetPageList", ctx,
+                            call.argument<String>("sourceId") ?: "",
+                            call.argument<String>("url") ?: "",
+                            call.argument<String>("name") ?: "")
+                    }
+                    else -> { withContext(Dispatchers.Main) { result.notImplemented() }; return@launch }
+                }
+                withContext(Dispatchers.Main) { result.success(res) }
+            } catch (e: Throwable) {
+                sendError(result, "Kotatsu.${call.method}", e)
+            }
+        }
+    }
+
+    private fun installSourceInternal(context: Context, apkPath: String, isAnime: Boolean): Boolean {
+        return try {
+            val pm = context.packageManager
+            val packageInfo = pm.getPackageArchiveInfo(apkPath, 0)
+                ?: throw IllegalArgumentException("Invalid APK file at $apkPath")
+            val packageName = packageInfo.packageName
+
+            val dirName = if (isAnime) "exts" else "exts_manga"
+            val privateDir = File(context.filesDir, dirName)
+            if (!privateDir.exists()) {
+                privateDir.mkdirs()
+            }
+
+            val srcFile = File(apkPath)
+            val dstFile = File(privateDir, "$packageName.apk")
+            val tmpFile = File(privateDir, "$packageName.apk.tmp")
+
+            srcFile.inputStream().use { input ->
+                FileOutputStream(tmpFile).use { output ->
+                    input.copyTo(output)
+                }
+            }
+
+            if (tmpFile.renameTo(dstFile)) {
+                dstFile.setReadOnly()
+                Log.i(TAG, "Successfully installed internal extension: $packageName to ${dstFile.absolutePath}")
+                true
+            } else {
+                tmpFile.delete()
+                false
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to install source internally: ${e.message}", e)
+            false
+        }
+    }
+
+    private fun uninstallSourceInternal(context: Context, packageName: String, isAnime: Boolean): Boolean {
+        return try {
+            val dirName = if (isAnime) "exts" else "exts_manga"
+            val privateDir = File(context.filesDir, dirName)
+            val apkFile = File(privateDir, "$packageName.apk")
+            if (apkFile.exists()) {
+                apkFile.delete()
+            }
+            val iconFile = File(context.cacheDir, "${packageName}_icon.png")
+            if (iconFile.exists()) {
+                iconFile.delete()
+            }
+            Log.i(TAG, "Successfully uninstalled internal extension: $packageName")
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to uninstall source internally: ${e.message}", e)
+            false
         }
     }
 

@@ -1,1 +1,12 @@
 rootProject.name = "Desktop"
+
+dependencyResolutionManagement {
+    versionCatalogs {
+        create("libs") {
+            from(files("../../kotatsu_ext/gradle/libs.versions.toml"))
+        }
+    }
+}
+
+include ':kotatsu_ext'
+project(':kotatsu_ext').projectDir = new File(settingsDir, "../../kotatsu_ext")

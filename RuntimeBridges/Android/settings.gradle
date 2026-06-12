@@ -13,7 +13,14 @@ dependencyResolutionManagement {
         mavenCentral()
         maven { url "https://jitpack.io" }
     }
+    versionCatalogs {
+        create("libs") {
+            from(files("../../kotatsu_ext/gradle/libs.versions.toml"))
+        }
+    }
 }
 
 rootProject.name = "AnymeXRuntimeHost"
 include ':app'
+include ':kotatsu_ext'
+project(':kotatsu_ext').projectDir = new File(settingsDir, "../../kotatsu_ext")

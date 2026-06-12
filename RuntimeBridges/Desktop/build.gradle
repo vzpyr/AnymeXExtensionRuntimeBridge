@@ -3,10 +3,12 @@ plugins {
     id 'org.jetbrains.kotlin.plugin.serialization' version '2.1.0'
 }
 
-repositories {
-    mavenCentral()
-    google()
-    maven { url 'https://jitpack.io' }
+allprojects {
+    repositories {
+        mavenCentral()
+        google()
+        maven { url 'https://jitpack.io' }
+    }
 }
 
 java {
@@ -57,6 +59,7 @@ dependencies {
     implementation "com.squareup.retrofit2:converter-jackson:2.11.0"
     implementation "org.jetbrains.kotlin:kotlin-reflect:2.1.0"
     implementation "org.json:json:20240303"
+    implementation project(':kotatsu_ext')
 }
 
 tasks.register("shadowJar", Jar) {
