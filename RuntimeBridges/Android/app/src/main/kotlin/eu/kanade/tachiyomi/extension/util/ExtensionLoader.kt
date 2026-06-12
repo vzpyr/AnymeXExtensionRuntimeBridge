@@ -11,8 +11,11 @@ import android.os.Build
 import androidx.core.content.pm.PackageInfoCompat
 import com.anymex.runtimehost.LogLevel
 import com.anymex.runtimehost.Logger
+import android.content.pm.ApplicationInfo
+import android.graphics.Canvas
 import dalvik.system.BaseDexClassLoader
 import dalvik.system.PathClassLoader
+import eu.kanade.tachiyomi.util.system.ChildFirstPathClassLoader
 import eu.kanade.tachiyomi.animesource.AnimeCatalogueSource
 import eu.kanade.tachiyomi.animesource.AnimeSource
 import eu.kanade.tachiyomi.animesource.AnimeSourceFactory
@@ -82,7 +85,7 @@ internal object ExtensionLoader {
         }
     }
 
-    fun loadMangaExtensions(context: Context): List<MangaLoadResult> {
+    fun loadMangaExtensions(context: Context, path: String? = null): List<MangaLoadResult> {
         val pkgManager = context.packageManager
 
         val installedPkgs = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -91,13 +94,50 @@ internal object ExtensionLoader {
             pkgManager.getInstalledPackages(PACKAGE_FLAGS)
         }
 
-        val extPkgs = installedPkgs.filter { isPackageAnExtension(MediaType.MANGA, it) }
+        val sharedExtPkgs = installedPkgs.filter { isPackageAnExtension(MediaType.MANGA, it) }
 
-        if (extPkgs.isEmpty()) return emptyList()
+        val privateExtPkgs = try {
+            val privateDir = File(context.filesDir, "exts_manga")
+            if (!privateDir.exists()) {
+                privateDir.mkdirs()
+            }
+
+            if (!path.isNullOrBlank()) {
+                val externalDir = File(path, "exts_manga")
+                if (externalDir.exists() && externalDir.absolutePath != privateDir.absolutePath) {
+                    privateDir.listFiles()?.forEach { it.delete() }
+                    externalDir.listFiles()?.asSequence()?.filter { it.isFile && it.extension == "apk" }?.forEach { src ->
+                        val dst = File(privateDir, src.name)
+                        val tmp = File(privateDir, "${src.name}.tmp")
+                        tmp.outputStream().use { out ->
+                            src.inputStream().use { it.copyTo(out) }
+                        }
+                        if (!tmp.renameTo(dst)) {
+                            tmp.delete()
+                        } else {
+                            dst.setReadOnly()
+                        }
+                    }
+                }
+            }
+
+            privateDir.listFiles()?.asSequence()?.filter { it.isFile && it.extension == "apk" }?.mapNotNull { apk ->
+                pkgManager.getPackageArchiveInfo(apk.absolutePath, PACKAGE_FLAGS)?.apply {
+                    applicationInfo?.fixBasePaths(apk.absolutePath)
+                }
+            }?.filter { isPackageAnExtension(MediaType.MANGA, it) }?.toList() ?: emptyList()
+        } catch (e: Exception) {
+            Logger.log("Manga private extensions load failed: ${e.message}", LogLevel.ERROR)
+            emptyList()
+        }
+
+        val allPkgs = (sharedExtPkgs + privateExtPkgs).distinctBy { it.packageName }
+
+        if (allPkgs.isEmpty()) return emptyList()
 
         // Load each extension concurrently and wait for completion
         return runBlocking {
-            val deferred = extPkgs.map {
+            val deferred = allPkgs.map {
                 async { loadMangaExtension(context, it.packageName, it) }
             }
             deferred.map { it.await() }
@@ -114,9 +154,7 @@ internal object ExtensionLoader {
         val appInfo = try {
             pkgManager.getApplicationInfo(pkgName, PackageManager.GET_META_DATA)
         } catch (error: PackageManager.NameNotFoundException) {
-            // Unlikely, but the package may have been uninstalled at this point
-            Logger.log(error.toString(), LogLevel.ERROR)
-            return AnimeLoadResult.Error
+            pkgInfo.applicationInfo?.apply { fixBasePaths(sourceDir ?: "") } ?: return AnimeLoadResult.Error
         }
 
         val extName = pkgManager.getApplicationLabel(appInfo).toString().substringAfter("Aniyomi: ")
@@ -198,7 +236,7 @@ internal object ExtensionLoader {
             sources = sources,
             pkgFactory = appInfo.metaData.getString("${ANIME_PACKAGE}${XX_METADATA_SOURCE_FACTORY}"),
             isUnofficial = true,
-            iconUrl = context.getApplicationIcon(pkgName),
+            iconUrl = context.getApplicationIcon(pkgInfo),
         )
         return AnimeLoadResult.Success(extension)
     }
@@ -213,9 +251,7 @@ internal object ExtensionLoader {
         val appInfo = try {
             pkgManager.getApplicationInfo(pkgName, PackageManager.GET_META_DATA)
         } catch (error: PackageManager.NameNotFoundException) {
-            // Unlikely, but the package may have been uninstalled at this point
-            Logger.log(error.toString(), LogLevel.ERROR)
-            return MangaLoadResult.Error
+            pkgInfo.applicationInfo?.apply { fixBasePaths(sourceDir ?: "") } ?: return MangaLoadResult.Error
         }
 
         val extName =
@@ -245,7 +281,7 @@ internal object ExtensionLoader {
             appInfo.metaData.getInt("$MANGA_PACKAGE$XX_METADATA_HAS_CHANGELOG", 0) == 1
 
         val classLoader = try{
-            PathClassLoader(appInfo.sourceDir, null, ExtensionLoader::class.java.classLoader!!)
+            ChildFirstPathClassLoader(appInfo.sourceDir, null, ExtensionLoader::class.java.classLoader!!)
         } catch (e: Throwable) {
             Logger.log("Extension load error: $extName - ${e.message}", LogLevel.ERROR)
             return MangaLoadResult.Error
@@ -303,7 +339,7 @@ internal object ExtensionLoader {
             sources = sources,
             pkgFactory = appInfo.metaData.getString("$MANGA_PACKAGE$XX_METADATA_SOURCE_FACTORY"),
             isUnofficial = true,
-            iconUrl = context.getApplicationIcon(pkgName),
+            iconUrl = context.getApplicationIcon(pkgInfo),
         )
         Logger.log("Loaded Manga extension: $extName", LogLevel.INFO)
         return MangaLoadResult.Success(extension)
@@ -321,19 +357,48 @@ internal object ExtensionLoader {
             }
         }
     }
+
+    private fun ApplicationInfo.fixBasePaths(apkPath: String) {
+        if (sourceDir == null) {
+            sourceDir = apkPath
+        }
+        if (publicSourceDir == null) {
+            publicSourceDir = apkPath
+        }
+    }
 }
 
-fun Context.getApplicationIcon(pkgName: String): String? {
+fun Context.getApplicationIcon(pkgInfo: PackageInfo): String? {
     return try {
-        val drawable = packageManager.getApplicationIcon(pkgName)
-        val bitmap = (drawable as BitmapDrawable).bitmap
-        val file = File(cacheDir, "${pkgName}_icon.png")
-        val output = FileOutputStream(file)
-        bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)
-        output.close()
+        val appInfo = pkgInfo.applicationInfo ?: return null
+        if (appInfo.sourceDir == null) return null
+
+        if (appInfo.publicSourceDir == null) {
+            appInfo.publicSourceDir = appInfo.sourceDir
+        }
+
+        val drawable = appInfo.loadIcon(packageManager)
+        val bitmap = when (drawable) {
+            is BitmapDrawable -> drawable.bitmap
+            else -> {
+                val bmp = Bitmap.createBitmap(
+                    drawable.intrinsicWidth.coerceAtLeast(1),
+                    drawable.intrinsicHeight.coerceAtLeast(1),
+                    Bitmap.Config.ARGB_8888
+                )
+                val canvas = Canvas(bmp)
+                drawable.setBounds(0, 0, canvas.width, canvas.height)
+                drawable.draw(canvas)
+                bmp
+            }
+        }
+        val file = File(cacheDir, "${pkgInfo.packageName}_icon.png")
+        FileOutputStream(file).use {
+            bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)
+        }
         file.absolutePath
-    } catch (e: PackageManager.NameNotFoundException) {
-        Logger.log("Error getting icon for $pkgName: ${e.message}", LogLevel.ERROR)
+    } catch (e: Exception) {
+        Logger.log("Error getting icon for ${pkgInfo.packageName}: ${e.message}", LogLevel.ERROR)
         null
     }
 }

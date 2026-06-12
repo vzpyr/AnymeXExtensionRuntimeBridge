@@ -39,22 +39,24 @@ class AniyomiExtensions extends Extension {
 
   @override
   Future<void> fetchInstalledAnimeExtensions() async {
+    final path = AnymeXRuntimeBridge.settings.customAnimeApkPath ?? "";
     getInstalledRx(ItemType.anime).value =
-        await _loadInstalled('getInstalledAnimeExtensions', ItemType.anime);
+        await _loadInstalled('getInstalledAnimeExtensions', ItemType.anime, path);
   }
 
   @override
   Future<void> fetchInstalledMangaExtensions() async {
+    final path = AnymeXRuntimeBridge.settings.customMangaApkPath ?? "";
     getInstalledRx(ItemType.manga).value =
-        await _loadInstalled('getInstalledMangaExtensions', ItemType.manga);
+        await _loadInstalled('getInstalledMangaExtensions', ItemType.manga, path);
   }
 
   @override
   Future<void> fetchInstalledNovelExtensions() async {}
 
-  Future<List<Source>> _loadInstalled(String method, ItemType type) async {
+  Future<List<Source>> _loadInstalled(String method, ItemType type, String path) async {
     try {
-      final List<dynamic> result = await platform.invokeMethod(method, "");
+      final List<dynamic> result = await platform.invokeMethod(method, path);
       final parsed = result
           .map((e) => ASource.fromJson(Map<String, dynamic>.from(e)))
           .where((s) => s.itemType == type)
@@ -263,25 +265,63 @@ class AniyomiExtensions extends Extension {
         throw Exception('Failed to download APK: HTTP ${res.statusCode}');
       }
 
-      final tempDir = await getTemporaryDirectory();
+      final defaultTempDir = await getTemporaryDirectory();
       final apkFileName = '$packageName.apk';
-      final apkFile = File(path.join(tempDir.path, apkFileName));
 
-      await apkFile.writeAsBytes(res.bodyBytes);
-
-      final result = await InstallPlugin.installApk(
-        apkFile.path,
-        appId: packageName,
-      );
-
-      if (await apkFile.exists()) {
-        await apkFile.delete();
+      String? targetDir = customPath;
+      if (targetDir == null || targetDir.isEmpty) {
+        if (aSource.itemType == ItemType.anime) {
+          targetDir = AnymeXRuntimeBridge.settings.customAnimeApkPath;
+        } else if (aSource.itemType == ItemType.manga) {
+          targetDir = AnymeXRuntimeBridge.settings.customMangaApkPath;
+        }
       }
 
-      if (result['isSuccess'] != true) {
-        throw Exception(
-          'Installation failed: ${result['errorMessage'] ?? 'Unknown error'}',
+      File apkFile;
+      bool isCustomPath = false;
+
+      if (targetDir != null && targetDir.isNotEmpty) {
+        try {
+          final dir = Directory(targetDir);
+          if (!await dir.exists()) {
+            await dir.create(recursive: true);
+          }
+          apkFile = File(path.join(dir.path, apkFileName));
+          await apkFile.writeAsBytes(res.bodyBytes);
+          isCustomPath = true;
+          Logger.log('Saved APK to custom storage path: ${apkFile.path}');
+        } catch (e) {
+          Logger.log('Permission issue or write failure at custom path "$targetDir": $e. Falling back to default temporary directory.');
+          apkFile = File(path.join(defaultTempDir.path, apkFileName));
+          await apkFile.writeAsBytes(res.bodyBytes);
+        }
+      } else {
+        apkFile = File(path.join(defaultTempDir.path, apkFileName));
+        await apkFile.writeAsBytes(res.bodyBytes);
+      }
+
+      if (AnymeXRuntimeBridge.settings.useInternalExtensionLoading) {
+        final success = await installSourceInternal(source, apkFile.path);
+        if (!success) {
+          throw Exception('Internal installation failed for ${aSource.name}');
+        }
+      } else {
+        final result = await InstallPlugin.installApk(
+          apkFile.path,
+          appId: packageName,
         );
+
+        if (result['isSuccess'] != true) {
+          throw Exception(
+            'Installation failed: ${result['errorMessage'] ?? 'Unknown error'}',
+          );
+        }
+      }
+
+      if (!isCustomPath) {
+        if (await apkFile.exists()) {
+          await apkFile.delete();
+        }
       }
 
       final avail = getAvailableRx(aSource.itemType!);
@@ -307,6 +347,20 @@ class AniyomiExtensions extends Extension {
     }
   }
 
+  Future<bool> installSourceInternal(Source source, String apkPath) async {
+    final s = source as ASource;
+    try {
+      final success = await platform.invokeMethod<bool>('installSourceInternal', {
+        'apkPath': apkPath,
+        'isAnime': s.itemType == ItemType.anime,
+      });
+      return success ?? false;
+    } catch (e) {
+      Logger.log('Error in installSourceInternal: $e');
+      return false;
+    }
+  }
+
   @override
   Future<void> uninstallSource(Source source) async {
     final s = source as ASource;
@@ -317,6 +371,18 @@ class AniyomiExtensions extends Extension {
     final type = source.itemType!;
 
     try {
+      if (AnymeXRuntimeBridge.settings.useInternalExtensionLoading) {
+        final success = await platform.invokeMethod<bool>('uninstallSourceInternal', {
+          'packageName': packageName,
+          'isAnime': type == ItemType.anime,
+        });
+        if (success == true) {
+          getInstalledRx(type).value =
+              getInstalledRx(type).value.where((e) => e.id != s.id).toList();
+          return;
+        }
+      }
+
       final isInstalled = await DeviceApps.isAppInstalled(packageName);
       if (!isInstalled) {
         getInstalledRx(type).value =

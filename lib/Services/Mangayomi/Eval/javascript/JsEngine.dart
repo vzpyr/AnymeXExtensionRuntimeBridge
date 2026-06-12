@@ -5,7 +5,7 @@ import 'package:flutter_qjs/flutter_qjs.dart';
 
 import '../../../JsEngine.dart';
 import 'BridgeRegister.dart';
-import 'Utils.dart';
+import 'utils.dart';
 
 class JsExtensionEngine {
   JsExtensionEngine._internal();
@@ -50,7 +50,7 @@ class JsExtensionEngine {
         };
       ''');
 
-       JsUtils(_runtime).init();
+      JsUtils(_runtime).init();
       _initCompleter?.complete();
     } catch (e, stack) {
       _initCompleter?.completeError(e, stack);

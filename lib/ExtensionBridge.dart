@@ -211,6 +211,14 @@ class BridgeContext {
       useSystemPath: false,
     );
   }
+
+  Future<Directory?> getKotatsuPluginDirectory() async {
+    return await getDirectory(
+      subPath: 'kotatsu_plugins',
+      useCustomPath: true,
+      useSystemPath: false,
+    );
+  }
 }
 
 /// {@template get_directory_contract}

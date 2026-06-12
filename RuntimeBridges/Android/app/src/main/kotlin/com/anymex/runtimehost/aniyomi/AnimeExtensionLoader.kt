@@ -55,28 +55,31 @@ internal object AnimeExtensionLoader {
             .map { AnimeExtensionInfo(it, isShared = true) }.toList()
 
         try {
-            val externalDir = File((path ?: context.filesDir.absolutePath), "exts")
             val privateDir = File(context.filesDir, "exts")
-            if (privateDir.exists()) {
-                privateDir.listFiles()?.forEach { it.delete() }
-            } else {
+            if (!privateDir.exists()) {
                 privateDir.mkdirs()
             }
 
-            externalDir.listFiles()?.asSequence()?.filter { it.isFile && it.extension == "apk" }?.forEach { src ->
-                val dst = File(privateDir, src.name)
-                val tmp = File(privateDir, "${src.name}.tmp")
+            if (!path.isNullOrBlank()) {
+                val externalDir = File(path, "exts")
+                if (externalDir.exists() && externalDir.absolutePath != privateDir.absolutePath) {
+                    privateDir.listFiles()?.forEach { it.delete() }
+                    externalDir.listFiles()?.asSequence()?.filter { it.isFile && it.extension == "apk" }?.forEach { src ->
+                        val dst = File(privateDir, src.name)
+                        val tmp = File(privateDir, "${src.name}.tmp")
 
-                tmp.outputStream().use { out ->
-                    src.inputStream().use { it.copyTo(out) }
+                        tmp.outputStream().use { out ->
+                            src.inputStream().use { it.copyTo(out) }
+                        }
+
+                        if (!tmp.renameTo(dst)) {
+                            tmp.delete()
+                            throw IOException("Failed to finalize ${dst.name}")
+                        }
+
+                        dst.setReadOnly()
+                    }
                 }
-
-                if (!tmp.renameTo(dst)) {
-                    tmp.delete()
-                    throw IOException("Failed to finalize ${dst.name}")
-                }
-
-                dst.setReadOnly()
             }
 
             val privateExtPkgs = privateDir.listFiles()?.asSequence()?.filter { it.isFile && it.extension == "apk" }?.mapNotNull { apk ->

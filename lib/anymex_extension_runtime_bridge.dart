@@ -1,5 +1,6 @@
 library;
 export './AnymeXBridge.dart';
+export './Settings/AnymeXBridgeSettings.dart';
 export './ExtensionBridge.dart';
 export './ExtensionManager.dart';
 export './Extensions/Extensions.dart';
@@ -24,3 +25,9 @@ export './Runtime/Bridge/BridgeDispatcher.dart';
 export './Runtime/DesktopExtensionBase.dart';
 export './Runtime/RuntimeController.dart';
 export './Runtime/RuntimePaths.dart';
+export './Services/Kotatsu/Models/Source.dart';
+export './Services/Kotatsu/KotatsuExtensions.dart';
+export './Services/Kotatsu/KotatsuSourceMethods.dart';
+export './Services/KotatsuDesktop/DesktopKotatsuExtensions.dart';
+export './Services/KotatsuDesktop/DesktopKotatsuSourceMethods.dart';
+

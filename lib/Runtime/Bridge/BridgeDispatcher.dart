@@ -34,11 +34,15 @@ class BridgeDispatcher {
     }
   }
 
-  Future<dynamic> invokeMethod(String method, Map<String, dynamic> args) async {
+  Future<dynamic> invokeMethod(
+    String method,
+    Map<String, dynamic> args, {
+    Duration timeout = const Duration(seconds: 60),
+  }) async {
     if (_mode == BridgeType.jni) {
       return await JniBridge().invokeMethod(method, args);
     } else {
-      return await SidecarBridge().invokeMethod(method, args);
+      return await SidecarBridge().invokeMethod(method, args, timeout: timeout);
     }
   }
 

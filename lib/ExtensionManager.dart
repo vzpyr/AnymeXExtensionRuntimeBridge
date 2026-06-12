@@ -40,7 +40,7 @@ class ExtensionManager extends GetxController {
 
   Future<void> _initDefaultManagers() async {
     await AnymeXRuntimeBridge.checkAndInitialize();
-    
+
     await _registerAndInitializeManagers([
       SoraExtensions(),
       MangayomiExtensions(),
@@ -60,10 +60,13 @@ class ExtensionManager extends GetxController {
           if (Platform.isAndroid) ...[
             AniyomiExtensions(),
             CloudStreamExtensions(),
+            KotatsuExtensions(),
           ] else if (Platform.isWindows ||
-              Platform.isLinux || Platform.isMacOS) ...[
+              Platform.isLinux ||
+              Platform.isMacOS) ...[
             DesktopAniyomiExtensions(),
             DesktopCloudStreamExtensions(),
+            DesktopKotatsuExtensions(),
           ],
         ],
         insertAtStart: true,
@@ -332,6 +335,8 @@ extension SourceExecution on Source {
         SSource _ => 'https://static.everythingmoe.com/icons/sora.png',
         CloudStreamSource _ =>
           'https://static.everythingmoe.com/icons/cloudstream.png',
+        KotatsuSource _ =>
+          'https://raw.githubusercontent.com/KotatsuApp/Kotatsu/devel/metadata/en-US/icon.png',
         _ => 'mangayomi',
       };
 
@@ -354,6 +359,9 @@ Extension getSourceManager(Source source) {
   if (source is SSource) return em.findById('sora')!;
   if (source is CloudStreamSource) {
     return em.findById('cloudstream') ?? em.findById('cloudstream-desktop')!;
+  }
+  if (source is KotatsuSource) {
+    return em.findById('kotatsu') ?? em.findById('kotatsu-desktop')!;
   }
 
   return em.findById('mangayomi')!;

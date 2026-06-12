@@ -11,10 +11,14 @@ class UserAgentInterceptor(
         val originalRequest = chain.request()
 
         return if (originalRequest.header("User-Agent").isNullOrEmpty()) {
+            val host = originalRequest.url.host
+            val overrideUa = System.getProperty("anymex.ua.$host")
+            val ua = if (!overrideUa.isNullOrBlank()) overrideUa else defaultUserAgentProvider()
+
             val newRequest = originalRequest
                 .newBuilder()
                 .removeHeader("User-Agent")
-                .addHeader("User-Agent", defaultUserAgentProvider())
+                .addHeader("User-Agent", ua)
                 .build()
             chain.proceed(newRequest)
         } else {

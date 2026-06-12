@@ -88,7 +88,11 @@ class SidecarBridge {
     }
   }
 
-  Future<dynamic> invokeMethod(String method, Map<String, dynamic> args) async {
+  Future<dynamic> invokeMethod(
+    String method,
+    Map<String, dynamic> args, {
+    Duration timeout = const Duration(seconds: 60),
+  }) async {
     if (!_initialized || _process == null) {
       throw StateError('SidecarBridge is not initialized.');
     }
@@ -103,12 +107,27 @@ class SidecarBridge {
     final request = jsonEncode({
       'method': method,
       'args': args,
-      'id': id, 
+      'id': id,
     });
 
     _process!.stdin.writeln(request);
-    
-    return completer.future;
+
+    return completer.future.timeout(
+      timeout,
+      onTimeout: () {
+        _completers.remove(id);
+        try {
+          _process!.stdin.writeln(jsonEncode({
+            'method': 'cancel',
+            'args': {'id': id},
+          }));
+        } catch (_) {}
+        throw TimeoutException(
+          'Sidecar request "$method" (id: $id) timed out after ${timeout.inSeconds}s',
+          timeout,
+        );
+      },
+    );
   }
 
   Stream<dynamic> invokeStreamMethod(String method, Map<String, dynamic> args) {

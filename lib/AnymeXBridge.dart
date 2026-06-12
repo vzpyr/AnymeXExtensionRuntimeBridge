@@ -2,19 +2,20 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'Logger.dart';
 import 'Settings/KvStore.dart';
+import 'Settings/AnymeXBridgeSettings.dart';
 import 'Runtime/RuntimeDownloader.dart';
 import 'Runtime/Bridge/BridgeDispatcher.dart';
 import 'Runtime/RuntimeController.dart';
 import 'Runtime/RuntimePaths.dart';
 import 'dart:async';
 
-
-
 class AnymeXRuntimeBridge {
   static const _channel = MethodChannel('anymeXBridge');
 
-  static bool get isSupportedPlatform => 
-      Platform.isAndroid || Platform.isWindows || Platform.isLinux || Platform.isMacOS;
+  static AnymeXBridgeSettings settings = AnymeXBridgeSettings();
+
+  static bool get isSupportedPlatform =>
+      !Platform.isIOS;
 
   /// Setup the AnymeX Runtime Bridge (Android APK or Desktop JRE/JAR).
   /// This handles downloading, tracking progress, and initialization.
@@ -23,26 +24,30 @@ class AnymeXRuntimeBridge {
   static Future<void> setupRuntime(
       {String? customDownloadUrl,
       bool force = false,
-      String? localApkPath}) async {
+      String? localApkPath,
+      AnymeXBridgeSettings? settings}) async {
     if (!isSupportedPlatform) return;
+    if (settings != null) {
+      AnymeXRuntimeBridge.settings = settings;
+    }
     await RuntimeDownloader().setupRuntime(
         customUrl: customDownloadUrl, force: force, localApkPath: localApkPath);
   }
 
-  /// Explicitly sets and loads a custom local APK. 
+  /// Explicitly sets and loads a custom local APK.
   /// This path is persisted and will be used automatically on future app restarts.
   static Future<bool> useLocalApk(String path) async {
     if (!Platform.isAndroid) return false;
     final exists = await File(path).exists();
     if (!exists) {
-        Logger.log("useLocalApk: File does not exist at $path");
-        return false;
+      Logger.log("useLocalApk: File does not exist at $path");
+      return false;
     }
-    
+
     try {
-        setVal('runtime_host_path', path);
+      setVal('runtime_host_path', path);
     } catch (e) {
-        Logger.log('Failed to save runtime host APK path to KvStore: $e');
+      Logger.log('Failed to save runtime host APK path to KvStore: $e');
     }
 
     return await loadAnymeXRuntimeHost(path);
@@ -50,20 +55,24 @@ class AnymeXRuntimeBridge {
 
   /// Checks if the runtime files already exist and initializes the bridge if they do.
   /// Call this on app startup to auto-load the bridge.
-  static Future<void> checkAndInitialize() async {
+  static Future<void> checkAndInitialize(
+      {AnymeXBridgeSettings? settings}) async {
     if (!isSupportedPlatform) return;
+    if (settings != null) {
+      AnymeXRuntimeBridge.settings = settings;
+    }
 
     final paths = RuntimePaths();
-    
+
     String? savedPath;
     try {
-        savedPath = getVal<String>('runtime_host_path');
+      savedPath = getVal<String>('runtime_host_path');
     } catch (_) {}
 
     final bridgePath = (savedPath != null && await File(savedPath).exists())
         ? savedPath
         : await paths.bridgePath;
-        
+
     final bridgeFile = File(bridgePath);
     bool exists = await bridgeFile.exists();
 
@@ -78,10 +87,10 @@ class AnymeXRuntimeBridge {
       } else {
         controller.setReady(true);
       }
-      Logger.log("AnymeX Bridge auto-detected and initialized from: $bridgePath");
+      Logger.log(
+          "AnymeX Bridge auto-detected and initialized from: $bridgePath");
     }
   }
-
 
   static RuntimeController get controller => RuntimeController.it;
 
@@ -99,11 +108,13 @@ class AnymeXRuntimeBridge {
 
     _loadCompleter = Completer<bool>();
 
+    final finalSettings = settings ?? AnymeXRuntimeBridge.settings.toJson();
+
     try {
       final result =
           await _channel.invokeMethod<bool>('loadAnymeXRuntimeHost', {
         'path': apkPath,
-        if (settings != null) 'settings': settings,
+        'settings': finalSettings,
       });
       final bool isLoaded = result ?? false;
 
@@ -156,8 +167,66 @@ class AnymeXRuntimeBridge {
     }
   }
 
-  static String get installedVersion => getVal<String>('runtime_host_installed_version', defaultValue: '') ?? '';
-  static String get installedReleaseTitle => getVal<String>('runtime_host_installed_release_title', defaultValue: '') ?? '';
+  /// Pushes a set of cookies for the given [url] into the native OkHttp
+  /// CookieJar used by all extensions (Aniyomi, CloudStream, Kotatsu).
+  /// [url]          – origin URL the cookies belong to.
+  /// [cookieString] – the raw `Set-Cookie` / `Cookie` header string,
+  static Future<void> setCookies(String url, String cookieString) async {
+    if (!isSupportedPlatform) return;
+    if (Platform.isAndroid) {
+      try {
+        await _channel.invokeMethod<void>('setCookies', {
+          'url': url,
+          'cookieString': cookieString,
+        });
+      } catch (e) {
+        Logger.log('setCookies failed: $e');
+      }
+    } else {
+      try {
+        await BridgeDispatcher().invokeMethod('setCookies', {
+          'url': url,
+          'cookieString': cookieString,
+        });
+      } catch (e) {
+        Logger.log('setCookies (desktop) failed: $e');
+      }
+    }
+  }
+
+  /// Updates the User-Agent that all extensions will use when making requests
+  /// to the given [url]'s domain.
+  /// [url]       – origin URL whose domain this UA should apply to.
+  /// [userAgent] – the User-Agent string captured from the WebView solve.
+  static Future<void> setUserAgent(String url, String userAgent) async {
+    if (!isSupportedPlatform) return;
+    if (Platform.isAndroid) {
+      try {
+        await _channel.invokeMethod<void>('setUserAgent', {
+          'url': url,
+          'userAgent': userAgent,
+        });
+      } catch (e) {
+        Logger.log('setUserAgent failed: $e');
+      }
+    } else {
+      try {
+        await BridgeDispatcher().invokeMethod('setUserAgent', {
+          'url': url,
+          'userAgent': userAgent,
+        });
+      } catch (e) {
+        Logger.log('setUserAgent (desktop) failed: $e');
+      }
+    }
+  }
+
+  static String get installedVersion =>
+      getVal<String>('runtime_host_installed_version', defaultValue: '') ?? '';
+  static String get installedReleaseTitle =>
+      getVal<String>('runtime_host_installed_release_title',
+          defaultValue: '') ??
+      '';
   static bool get isPluginInstalled => installedVersion.isNotEmpty;
 
   static void setInstalledRelease(String version, String title) {
@@ -165,4 +234,3 @@ class AnymeXRuntimeBridge {
     setVal('runtime_host_installed_release_title', title);
   }
 }
-

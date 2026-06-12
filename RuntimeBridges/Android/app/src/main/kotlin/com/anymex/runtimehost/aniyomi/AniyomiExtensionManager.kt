@@ -31,9 +31,9 @@ class AniyomiExtensionManager(var context: Context) {
         return installedAnimeExtensions
     }
 
-    fun fetchInstalledMangaExtensions(): List<MangaExtension.Installed> {
+    fun fetchInstalledMangaExtensions(path: String?): List<MangaExtension.Installed> {
         installedMangaExtensions = emptyList() // Clear previous state
-        val sources = ExtensionLoader.loadMangaExtensions(context)
+        val sources = ExtensionLoader.loadMangaExtensions(context, path)
         installedMangaExtensions =
             sources.filterIsInstance<MangaLoadResult.Success>().map { it.extension }
         return installedMangaExtensions

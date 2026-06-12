@@ -39,13 +39,24 @@ private fun isInvalidData(data: String): Boolean {
 class CloudStreamSourceMethods(val provider: MainAPI) {
 
     suspend fun search(query: String, page: Int): Map<String, Any?> {
+        Log.i(TAG, "Searching on '${provider.name}' for '$query' (page $page)...")
         return try {
-            val res = provider.search(query, page) ?: return mapOf("list" to emptyList<Any>(), "hasNextPage" to false)
+            val res = provider.search(query, page)
+            if (res == null) {
+                Log.w(TAG, "'${provider.name}' returned null search results.")
+                return mapOf("list" to emptyList<Any>(), "hasNextPage" to false)
+            }
+            if (res.items.isEmpty()) {
+                Log.w(TAG, "'${provider.name}' search returned 0 items.")
+            } else {
+                Log.i(TAG, "'${provider.name}' search returned ${res.items.size} items (hasNext = ${res.hasNext}).")
+            }
             mapOf(
                 "list" to res.items.map { it.toMap() },
                 "hasNextPage" to res.hasNext  
             )
         } catch (e: Exception) {
+            Log.e(TAG, "ERROR: '${provider.name}' search failed for query '$query'", e)
             mapOf("list" to emptyList<Any>(), "hasNextPage" to false)
         }
     }

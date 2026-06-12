@@ -136,7 +136,7 @@ object RuntimeBridge {
         }
     }
 
-    fun getInstalledAnimeExtensions(context: Context, path: String?): List<Map<String, Any?>> {
+    fun getInstalledAnimeExtensions(context: Context, path: String? = null): List<Map<String, Any?>> {
         val extensions = extensionManager(context).fetchInstalledAnimeExtensions(path)
         
         extensions.forEach { ext ->
@@ -167,12 +167,12 @@ object RuntimeBridge {
         }
     }
 
-    fun getInstalledMangaExtensions(context: Context): List<Map<String, Any?>> {
-        val extensions = extensionManager(context).fetchInstalledMangaExtensions()
+    fun getInstalledMangaExtensions(context: Context, path: String? = null): List<Map<String, Any?>> {
+        val extensions = extensionManager(context).fetchInstalledMangaExtensions(path)
         
         extensions.forEach { ext ->
             ext.sources.forEach { source ->
-                aniyomiPathRegistry[source.id.toString()] = "" 
+                aniyomiPathRegistry[source.id.toString()] = path ?: "" 
                 aniyomiIsAnimeRegistry[source.id.toString()] = false
             }
         }
@@ -718,6 +718,54 @@ object RuntimeBridge {
         }
         
         System.gc()
+    }
+
+    @JvmStatic
+    @JvmOverloads
+    fun kotatsuLoadExtensions(context: Context, folderPath: String?): List<Map<String, Any?>> {
+        return runBlocking {
+            com.anymex.runtimehost.kotatsu.KotatsuExtensionLoader.loadExtensions(context, folderPath)
+        }
+    }
+
+    @JvmStatic
+    @JvmOverloads
+    fun kotatsuGetPopular(context: Context, sourceId: String, page: Int): Map<String, Any?> {
+        return runBlocking {
+            com.anymex.runtimehost.kotatsu.KotatsuExtensionLoader.getPopular(sourceId, page)
+        }
+    }
+
+    @JvmStatic
+    @JvmOverloads
+    fun kotatsuGetLatestUpdates(context: Context, sourceId: String, page: Int): Map<String, Any?> {
+        return runBlocking {
+            com.anymex.runtimehost.kotatsu.KotatsuExtensionLoader.getLatestUpdates(sourceId, page)
+        }
+    }
+
+    @JvmStatic
+    @JvmOverloads
+    fun kotatsuSearch(context: Context, sourceId: String, query: String, page: Int): Map<String, Any?> {
+        return runBlocking {
+            com.anymex.runtimehost.kotatsu.KotatsuExtensionLoader.search(sourceId, query, page)
+        }
+    }
+
+    @JvmStatic
+    @JvmOverloads
+    fun kotatsuGetDetail(context: Context, sourceId: String, url: String, title: String, cover: String): Map<String, Any?> {
+        return runBlocking {
+            com.anymex.runtimehost.kotatsu.KotatsuExtensionLoader.getDetails(sourceId, url, title, cover)
+        }
+    }
+
+    @JvmStatic
+    @JvmOverloads
+    fun kotatsuGetPageList(context: Context, sourceId: String, url: String, name: String): List<Map<String, Any?>> {
+        return runBlocking {
+            com.anymex.runtimehost.kotatsu.KotatsuExtensionLoader.getPageList(sourceId, url, name)
+        }
     }
 
     private fun extensionManager(context: Context): AniyomiExtensionManager {
