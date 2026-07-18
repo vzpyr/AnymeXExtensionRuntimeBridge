@@ -1,4 +1,6 @@
 import 'dart:io';
+import 'dart:convert';
+import 'package:path/path.dart' as p;
 import 'package:flutter/services.dart';
 import 'Logger.dart';
 import 'Settings/KvStore.dart';
@@ -19,6 +21,53 @@ class AnymeXRuntimeBridge {
 
   static bool get isSupportedPlatform => !Platform.isIOS;
 
+  static String? _cachedBridgePath;
+  static String? _cachedToolsDirPath;
+  static String? _cachedJreDirPath;
+  static String _cachedVersion = '';
+  static String _cachedReleaseTitle = '';
+  static bool _hasLoadedMetadata = false;
+
+  static Future<void> _initPathsAndLoadMetadata() async {
+    if (_cachedBridgePath != null) return;
+    try {
+      final paths = RuntimePaths();
+      _cachedBridgePath = await paths.bridgePath;
+      _cachedToolsDirPath = (await paths.toolsDir).path;
+      _cachedJreDirPath = (await paths.jreDir).path;
+
+      await loadMetadata();
+    } catch (e) {
+      Logger.log("Error initializing paths: $e");
+    }
+  }
+
+  static Future<void> loadMetadata() async {
+    if (_cachedToolsDirPath == null) return;
+    try {
+      final metadataFile = File(p.join(_cachedToolsDirPath!, 'metadata.json'));
+      if (await metadataFile.exists()) {
+        final content = await metadataFile.readAsString();
+        final data = jsonDecode(content);
+        _cachedVersion = data['version'] ?? '';
+        _cachedReleaseTitle = data['title'] ?? '';
+      } else {
+        _cachedVersion = getVal<String>('runtime_host_installed_version', defaultValue: '') ?? '';
+        _cachedReleaseTitle = getVal<String>('runtime_host_installed_release_title', defaultValue: '') ?? '';
+        
+        if (_cachedVersion.isNotEmpty) {
+          await metadataFile.writeAsString(jsonEncode({
+            'version': _cachedVersion,
+            'title': _cachedReleaseTitle,
+          }));
+        }
+      }
+    } catch (e) {
+      Logger.log("Error loading metadata: $e");
+    }
+    _hasLoadedMetadata = true;
+  }
+
   /// Setup the AnymeX Runtime Bridge (Android APK or Desktop JRE/JAR).
   /// This handles downloading, tracking progress, and initialization.
   /// Set [force] to true to re-download the Bridge JAR/APK (useful for updates).
@@ -29,6 +78,7 @@ class AnymeXRuntimeBridge {
       String? localApkPath,
       AnymeXBridgeSettings? settings}) async {
     if (!isSupportedPlatform) return;
+    await _initPathsAndLoadMetadata();
     if (settings != null) {
       AnymeXRuntimeBridge.settings = settings;
     }
@@ -60,8 +110,16 @@ class AnymeXRuntimeBridge {
   static Future<void> checkAndInitialize(
       {AnymeXBridgeSettings? settings}) async {
     if (!isSupportedPlatform) return;
+    await _initPathsAndLoadMetadata();
     if (settings != null) {
       AnymeXRuntimeBridge.settings = settings;
+    } else {
+      try {
+        final useInternal = getVal<bool>('use_internal_extension_loading') ?? false;
+        AnymeXRuntimeBridge.settings = AnymeXBridgeSettings(
+          useInternalExtensionLoading: useInternal,
+        );
+      } catch (_) {}
     }
 
     final paths = RuntimePaths();
@@ -235,16 +293,61 @@ class AnymeXRuntimeBridge {
     }
   }
 
-  static String get installedVersion =>
-      getVal<String>('runtime_host_installed_version', defaultValue: '') ?? '';
-  static String get installedReleaseTitle =>
-      getVal<String>('runtime_host_installed_release_title',
-          defaultValue: '') ??
-      '';
-  static bool get isPluginInstalled => installedVersion.isNotEmpty;
+  static String get installedVersion {
+    if (!isPluginInstalled) return '';
+    return _cachedVersion;
+  }
+
+  static String get installedReleaseTitle {
+    if (!isPluginInstalled) return '';
+    return _cachedReleaseTitle;
+  }
+
+  static bool get isPluginInstalled {
+    if (_cachedBridgePath == null) return false;
+    final bridgeFile = File(_cachedBridgePath!);
+    if (!bridgeFile.existsSync()) return false;
+
+    if (!Platform.isAndroid && _cachedJreDirPath != null) {
+      final jreDir = Directory(_cachedJreDirPath!);
+      if (!jreDir.existsSync()) return false;
+    }
+
+    if (_cachedToolsDirPath != null) {
+      final metadataFile = File(p.join(_cachedToolsDirPath!, 'metadata.json'));
+      if (!metadataFile.existsSync()) return false;
+    }
+
+    return _cachedVersion.isNotEmpty;
+  }
 
   static void setInstalledRelease(String version, String title) {
+    _cachedVersion = version;
+    _cachedReleaseTitle = title;
+
     setVal('runtime_host_installed_version', version);
     setVal('runtime_host_installed_release_title', title);
+
+    if (_cachedToolsDirPath != null) {
+      try {
+        final metadataFile = File(p.join(_cachedToolsDirPath!, 'metadata.json'));
+        metadataFile.writeAsStringSync(jsonEncode({
+          'version': version,
+          'title': title,
+        }));
+      } catch (e) {
+        Logger.log("Failed to write metadata.json: $e");
+      }
+    }
+  }
+
+  static bool get useInternalExtensionLoading =>
+      getVal<bool>('use_internal_extension_loading', defaultValue: false) ?? false;
+
+  static void setUseInternalExtensionLoading(bool value) {
+    setVal('use_internal_extension_loading', value);
+    settings = AnymeXBridgeSettings(
+      useInternalExtensionLoading: value,
+    );
   }
 }
