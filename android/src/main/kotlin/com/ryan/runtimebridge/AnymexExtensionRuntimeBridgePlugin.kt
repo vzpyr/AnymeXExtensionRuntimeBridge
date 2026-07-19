@@ -169,7 +169,7 @@ class AnymexExtensionRuntimeBridgePlugin : FlutterPlugin, ActivityAware {
             }
 
             ctx.cacheDir.listFiles()?.forEach { file ->
-                if (file.isDirectory && file.name.startsWith("anymex_dex_")) {
+                if (file.isDirectory && (file.name.startsWith("anymex_dex_") || file.name.startsWith("anymex_libs_"))) {
                     file.deleteRecursively()
                 }
             }
@@ -177,10 +177,60 @@ class AnymexExtensionRuntimeBridgePlugin : FlutterPlugin, ActivityAware {
             val optimizedDir = File(ctx.cacheDir, "anymex_dex_${System.currentTimeMillis()}")
             optimizedDir.mkdirs()
 
+            val libsDir = File(ctx.cacheDir, "anymex_libs_${System.currentTimeMillis()}")
+            libsDir.mkdirs()
+
+            try {
+                java.util.zip.ZipFile(cacheApk).use { zip ->
+                    val abisList = android.os.Build.SUPPORTED_ABIS
+                    var selectedAbi: String? = null
+                    
+                    for (abi in abisList) {
+                        val prefix = "lib/$abi/"
+                        var found = false
+                        val entriesEnum = zip.entries()
+                        while (entriesEnum.hasMoreElements()) {
+                            val entry = entriesEnum.nextElement()
+                            if (entry.name.startsWith(prefix) && entry.name.endsWith(".so")) {
+                                found = true
+                                break
+                            }
+                        }
+                        if (found) {
+                            selectedAbi = abi
+                            break
+                        }
+                    }
+
+                    if (selectedAbi != null) {
+                        Log.i(TAG, "Extracting native libraries for ABI: $selectedAbi")
+                        val prefix = "lib/$selectedAbi/"
+                        val entriesEnum = zip.entries()
+                        while (entriesEnum.hasMoreElements()) {
+                            val entry = entriesEnum.nextElement()
+                            if (entry.name.startsWith(prefix) && entry.name.endsWith(".so")) {
+                                val libName = entry.name.substringAfterLast('/')
+                                val outFile = File(libsDir, libName)
+                                zip.getInputStream(entry).use { input ->
+                                    FileOutputStream(outFile).use { output ->
+                                        input.copyTo(output)
+                                    }
+                                }
+                                Log.d(TAG, "Extracted native library: $libName to ${outFile.absolutePath}")
+                            }
+                        }
+                    } else {
+                        Log.w(TAG, "No matching native libraries found in APK for supported ABIs: ${abisList.joinToString()}")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to extract native libraries: ${e.message}", e)
+            }
+
             val loader = ChildFirstClassLoader(
                 cacheApk.absolutePath,
                 optimizedDir.absolutePath,
-                cacheApk.absolutePath,
+                libsDir.absolutePath,
                 ctx.classLoader!!
             )
 
@@ -697,6 +747,9 @@ class AnymexExtensionRuntimeBridgePlugin : FlutterPlugin, ActivityAware {
             if (dstFile.exists()) dstFile.delete()
 
             if (tmpFile.renameTo(dstFile)) {
+                try {
+                    dstFile.setReadOnly()
+                } catch (_: Exception) {}
                 Log.i(TAG, "Successfully installed internal extension: $packageName to ${dstFile.absolutePath}")
                 true
             } else {
