@@ -377,9 +377,12 @@ class AniyomiExtensions extends Extension {
           'isAnime': type == ItemType.anime,
         });
         if (success == true) {
-          getInstalledRx(type).value =
-              getInstalledRx(type).value.where((e) => e.id != s.id).toList();
-          return;
+          final isSystemInstalled = await DeviceApps.isAppInstalled(packageName);
+          if (!isSystemInstalled) {
+            getInstalledRx(type).value =
+                getInstalledRx(type).value.where((e) => e.id != s.id).toList();
+            return;
+          }
         }
       }
 
