@@ -404,14 +404,15 @@ class DesktopAniyomiExtensions extends DesktopExtensionBase {
         for (final entity in list) {
           if (entity is File) {
             final relPath = p.relative(entity.path, from: tempExtractedPath);
-            if (relPath == 'AndroidManifest.xml' ||
-                relPath == 'resources.arsc' ||
-                relPath.endsWith('.dex') ||
-                relPath.startsWith('res/')) {
+            final normalizedPath = relPath.replaceAll('\\', '/');
+            if (normalizedPath == 'AndroidManifest.xml' ||
+                normalizedPath == 'resources.arsc' ||
+                normalizedPath.endsWith('.dex') ||
+                normalizedPath.startsWith('res/')) {
               continue;
             }
             final bytes = entity.readAsBytesSync();
-            archive.addFile(ArchiveFile(relPath, bytes.length, bytes));
+            archive.addFile(ArchiveFile(normalizedPath, bytes.length, bytes));
           }
         }
       }
