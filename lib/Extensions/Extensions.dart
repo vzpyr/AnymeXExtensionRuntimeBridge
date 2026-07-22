@@ -115,7 +115,28 @@ abstract class Extension {
 
     return 0;
   }
+
+  Map<String, ExtensionSetting>? get settings => null;
 }
+
+class ExtensionSetting {
+  final String label;
+  final String description;
+  final dynamic value;
+  final List<dynamic>? options;
+  final String type; 
+  final void Function(dynamic newValue) onChanged;
+
+  ExtensionSetting({
+    required this.label,
+    required this.description,
+    required this.value,
+    this.options,
+    required this.type,
+    required this.onChanged,
+  });
+}
+
 
 class Repo {
   final String url;

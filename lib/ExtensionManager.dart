@@ -11,9 +11,12 @@ import 'Services/Sora/Models/Source.dart';
 import 'Services/Sora/SoraExtensions.dart';
 import 'anymex_extension_runtime_bridge.dart';
 
+import 'Settings/KvStore.dart';
+
 class ExtensionManager extends GetxController {
   final managers = <Extension>[].obs;
   final bridgeType = BridgeType.sidecar.obs;
+
 
   void setBridgeType(BridgeType type) {
     bridgeType.value = type;

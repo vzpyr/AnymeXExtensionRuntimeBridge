@@ -4,17 +4,13 @@ import 'package:path/path.dart' as p;
 import 'package:flutter/services.dart';
 import 'Logger.dart';
 import 'Settings/KvStore.dart';
-import 'Settings/AnymeXBridgeSettings.dart';
 import 'Runtime/RuntimeDownloader.dart';
-import 'Runtime/Bridge/BridgeDispatcher.dart';
 import 'Runtime/RuntimeController.dart';
 import 'Runtime/RuntimePaths.dart';
+import 'Runtime/Bridge/BridgeDispatcher.dart';
 import 'dart:async';
-
 class AnymeXRuntimeBridge {
   static const _channel = MethodChannel('anymeXBridge');
-
-  static AnymeXBridgeSettings settings = AnymeXBridgeSettings();
 
   static final Map<String, String> cookiesMap = {};
   static final Map<String, String> userAgentMap = {};
@@ -75,13 +71,9 @@ class AnymeXRuntimeBridge {
   static Future<void> setupRuntime(
       {String? customDownloadUrl,
       bool force = false,
-      String? localApkPath,
-      AnymeXBridgeSettings? settings}) async {
+      String? localApkPath}) async {
     if (!isSupportedPlatform) return;
     await _initPathsAndLoadMetadata();
-    if (settings != null) {
-      AnymeXRuntimeBridge.settings = settings;
-    }
     await RuntimeDownloader().setupRuntime(
         customUrl: customDownloadUrl, force: force, localApkPath: localApkPath);
   }
@@ -107,20 +99,9 @@ class AnymeXRuntimeBridge {
 
   /// Checks if the runtime files already exist and initializes the bridge if they do.
   /// Call this on app startup to auto-load the bridge.
-  static Future<void> checkAndInitialize(
-      {AnymeXBridgeSettings? settings}) async {
+  static Future<void> checkAndInitialize() async {
     if (!isSupportedPlatform) return;
     await _initPathsAndLoadMetadata();
-    if (settings != null) {
-      AnymeXRuntimeBridge.settings = settings;
-    } else {
-      try {
-        final useInternal = getVal<bool>('use_internal_extension_loading') ?? false;
-        AnymeXRuntimeBridge.settings = AnymeXBridgeSettings(
-          useInternalExtensionLoading: useInternal,
-        );
-      } catch (_) {}
-    }
 
     final paths = RuntimePaths();
 
@@ -168,7 +149,7 @@ class AnymeXRuntimeBridge {
 
     _loadCompleter = Completer<bool>();
 
-    final finalSettings = settings ?? AnymeXRuntimeBridge.settings.toJson();
+    final finalSettings = settings ?? {};
 
     try {
       final result =
@@ -339,15 +320,5 @@ class AnymeXRuntimeBridge {
         Logger.log("Failed to write metadata.json: $e");
       }
     }
-  }
-
-  static bool get useInternalExtensionLoading =>
-      getVal<bool>('use_internal_extension_loading', defaultValue: false) ?? false;
-
-  static void setUseInternalExtensionLoading(bool value) {
-    setVal('use_internal_extension_loading', value);
-    settings = AnymeXBridgeSettings(
-      useInternalExtensionLoading: value,
-    );
   }
 }

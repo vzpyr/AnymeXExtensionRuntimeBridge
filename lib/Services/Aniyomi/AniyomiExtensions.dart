@@ -9,6 +9,7 @@ import 'package:install_plugin/install_plugin.dart';
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 
+import 'package:get/get.dart';
 import '../../Logger.dart';
 import '../../Settings/KvStore.dart';
 import '../../anymex_extension_runtime_bridge.dart';
@@ -38,15 +39,55 @@ class AniyomiExtensions extends Extension {
   bool get requiresPlugin => true;
 
   @override
+  Map<String, ExtensionSetting>? get settings => {
+        'use_internal_anime_extension_loading': ExtensionSetting(
+          label: 'Aniyomi Internal Anime Extensions',
+          description: 'Install anime extensions only to AnymeX (No Package Manager)',
+          value: getVal<bool>('use_internal_anime_extension_loading', defaultValue: false) ?? false,
+          type: 'bool',
+          onChanged: (val) {
+            setVal('use_internal_anime_extension_loading', val as bool);
+          },
+        ),
+        'use_internal_manga_extension_loading': ExtensionSetting(
+          label: 'Aniyomi Internal Manga Extensions',
+          description: 'Install manga extensions only to AnymeX (No Package Manager)',
+          value: getVal<bool>('use_internal_manga_extension_loading', defaultValue: false) ?? false,
+          type: 'bool',
+          onChanged: (val) {
+            setVal('use_internal_manga_extension_loading', val as bool);
+          },
+        ),
+        'custom_anime_apk_path': ExtensionSetting(
+          label: 'Custom Anime APK Path',
+          description: 'Custom path to load anime extension APKs from',
+          value: getVal<String>('custom_anime_apk_path', defaultValue: '') ?? '',
+          type: 'string',
+          onChanged: (val) {
+            setVal('custom_anime_apk_path', val as String);
+          },
+        ),
+        'custom_manga_apk_path': ExtensionSetting(
+          label: 'Custom Manga APK Path',
+          description: 'Custom path to load manga extension APKs from',
+          value: getVal<String>('custom_manga_apk_path', defaultValue: '') ?? '',
+          type: 'string',
+          onChanged: (val) {
+            setVal('custom_manga_apk_path', val as String);
+          },
+        ),
+      };
+
+  @override
   Future<void> fetchInstalledAnimeExtensions() async {
-    final path = AnymeXRuntimeBridge.settings.customAnimeApkPath ?? "";
+    final path = getVal<String>('custom_anime_apk_path', defaultValue: '') ?? '';
     getInstalledRx(ItemType.anime).value =
         await _loadInstalled('getInstalledAnimeExtensions', ItemType.anime, path);
   }
 
   @override
   Future<void> fetchInstalledMangaExtensions() async {
-    final path = AnymeXRuntimeBridge.settings.customMangaApkPath ?? "";
+    final path = getVal<String>('custom_manga_apk_path', defaultValue: '') ?? '';
     getInstalledRx(ItemType.manga).value =
         await _loadInstalled('getInstalledMangaExtensions', ItemType.manga, path);
   }
@@ -271,9 +312,9 @@ class AniyomiExtensions extends Extension {
       String? targetDir = customPath;
       if (targetDir == null || targetDir.isEmpty) {
         if (aSource.itemType == ItemType.anime) {
-          targetDir = AnymeXRuntimeBridge.settings.customAnimeApkPath;
+          targetDir = getVal<String>('custom_anime_apk_path', defaultValue: '') ?? '';
         } else if (aSource.itemType == ItemType.manga) {
-          targetDir = AnymeXRuntimeBridge.settings.customMangaApkPath;
+          targetDir = getVal<String>('custom_manga_apk_path', defaultValue: '') ?? '';
         }
       }
 
@@ -300,7 +341,11 @@ class AniyomiExtensions extends Extension {
         await apkFile.writeAsBytes(res.bodyBytes);
       }
 
-      if (AnymeXRuntimeBridge.settings.useInternalExtensionLoading) {
+      final useInternal = aSource.itemType == ItemType.anime
+          ? (getVal<bool>('use_internal_anime_extension_loading', defaultValue: false) ?? false)
+          : (getVal<bool>('use_internal_manga_extension_loading', defaultValue: false) ?? false);
+
+      if (useInternal) {
         final success = await installSourceInternal(source, apkFile.path);
         if (!success) {
           throw Exception('Internal installation failed for ${aSource.name}');
@@ -371,7 +416,11 @@ class AniyomiExtensions extends Extension {
     final type = source.itemType!;
 
     try {
-      if (AnymeXRuntimeBridge.settings.useInternalExtensionLoading) {
+      final useInternal = type == ItemType.anime
+          ? (getVal<bool>('use_internal_anime_extension_loading', defaultValue: false) ?? false)
+          : (getVal<bool>('use_internal_manga_extension_loading', defaultValue: false) ?? false);
+
+      if (useInternal) {
         final success = await platform.invokeMethod<bool>('uninstallSourceInternal', {
           'packageName': packageName,
           'isAnime': type == ItemType.anime,

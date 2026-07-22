@@ -1,6 +1,5 @@
 library;
 export './AnymeXBridge.dart';
-export './Settings/AnymeXBridgeSettings.dart';
 export './ExtensionBridge.dart';
 export './ExtensionManager.dart';
 export './Extensions/Extensions.dart';
@@ -30,4 +29,6 @@ export './Services/Kotatsu/KotatsuExtensions.dart';
 export './Services/Kotatsu/KotatsuSourceMethods.dart';
 export './Services/KotatsuDesktop/DesktopKotatsuExtensions.dart';
 export './Services/KotatsuDesktop/DesktopKotatsuSourceMethods.dart';
+export './Torrent/torrent_stream_resolver.dart';
+export './Torrent/torrent_url_detector.dart';
 
