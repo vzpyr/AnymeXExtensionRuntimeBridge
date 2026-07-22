@@ -501,7 +501,7 @@ class AniyomiExtensions extends Extension {
       }
 
       getInstalledRx(type).value =
-          getInstalledRx(type).value.where((e) => e.id != s.id && e.pkgName != packageName).toList();
+          getInstalledRx(type).value.where((e) => e.id != s.id && (e is ASource ? e.pkgName : null) != packageName).toList();
 
       switch (type) {
         case ItemType.anime:
