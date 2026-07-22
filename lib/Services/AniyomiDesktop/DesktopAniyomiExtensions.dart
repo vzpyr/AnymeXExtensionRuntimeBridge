@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:collection/collection.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
@@ -236,13 +237,15 @@ class DesktopAniyomiExtensions extends DesktopExtensionBase {
 
   void _detectUpdates(List<ASource> available, ItemType type) {
     final installed = getInstalledRx(type).value.whereType<ASource>().toList();
-    final repoMap = {for (var s in available) s.id: s};
 
     bool changed = false;
 
     for (var i = 0; i < installed.length; i++) {
       final inst = installed[i];
-      final repo = repoMap[inst.id];
+      final repo = available.firstWhereOrNull((s) =>
+          (s.pkgName != null && s.pkgName == inst.pkgName) ||
+          s.id == inst.id ||
+          s.name == inst.name);
 
       if (repo == null) continue;
 
@@ -345,7 +348,20 @@ class DesktopAniyomiExtensions extends DesktopExtensionBase {
   Future<void> installSource(Source source, {String? customPath}) async {
     var aSource = source as ASource;
     var process;
-    if (aSource.apkUrl == null) {
+    if (aSource.apkUrl == null || aSource.apkUrl!.isEmpty) {
+      final type = aSource.itemType ?? ItemType.anime;
+      final available = getAvailableRx(type).value.whereType<ASource>();
+      final repoMatch = available.firstWhereOrNull((s) =>
+          (s.pkgName != null && s.pkgName == aSource.pkgName) ||
+          s.id == aSource.id ||
+          s.name == aSource.name);
+      if (repoMatch != null) {
+        aSource.apkName = repoMatch.apkName;
+        aSource.iconUrl = repoMatch.iconUrl;
+      }
+    }
+
+    if (aSource.apkUrl == null || aSource.apkUrl!.isEmpty) {
       return Future.error('Source APK URL is required for installation.');
     }
 

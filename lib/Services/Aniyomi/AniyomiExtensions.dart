@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:collection/collection.dart';
 import 'package:device_apps/device_apps.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -263,13 +264,15 @@ class AniyomiExtensions extends Extension {
 
   void _detectUpdates(List<ASource> available, ItemType type) {
     final installed = getInstalledRx(type).value.whereType<ASource>().toList();
-    final repoMap = {for (var s in available) s.id: s};
 
     bool changed = false;
 
     for (var i = 0; i < installed.length; i++) {
       final inst = installed[i];
-      final repo = repoMap[inst.id];
+      final repo = available.firstWhereOrNull((s) =>
+          (s.pkgName != null && s.pkgName == inst.pkgName) ||
+          s.id == inst.id ||
+          s.name == inst.name);
 
       if (repo == null) continue;
 
@@ -292,7 +295,20 @@ class AniyomiExtensions extends Extension {
   @override
   Future<void> installSource(Source source, {String? customPath}) async {
     var aSource = source as ASource;
-    if (aSource.apkUrl == null) {
+    if (aSource.apkUrl == null || aSource.apkUrl!.isEmpty) {
+      final type = aSource.itemType ?? ItemType.anime;
+      final available = getAvailableRx(type).value.whereType<ASource>();
+      final repoMatch = available.firstWhereOrNull((s) =>
+          (s.pkgName != null && s.pkgName == aSource.pkgName) ||
+          s.id == aSource.id ||
+          s.name == aSource.name);
+      if (repoMatch != null) {
+        aSource.apkName = repoMatch.apkName;
+        aSource.iconUrl = repoMatch.iconUrl;
+      }
+    }
+
+    if (aSource.apkUrl == null || aSource.apkUrl!.isEmpty) {
       return Future.error('Source APK URL is required for installation.');
     }
 
@@ -341,11 +357,15 @@ class AniyomiExtensions extends Extension {
         await apkFile.writeAsBytes(res.bodyBytes);
       }
 
-      final useInternal = aSource.itemType == ItemType.anime
+      final useInternalSetting = aSource.itemType == ItemType.anime
           ? (getVal<bool>('use_internal_anime_extension_loading', defaultValue: false) ?? false)
           : (getVal<bool>('use_internal_manga_extension_loading', defaultValue: false) ?? false);
 
-      if (useInternal) {
+      final bool shouldInstallInternal = aSource.isPrivate != null
+          ? aSource.isPrivate!
+          : useInternalSetting;
+
+      if (shouldInstallInternal) {
         final success = await installSourceInternal(source, apkFile.path);
         if (!success) {
           throw Exception('Internal installation failed for ${aSource.name}');

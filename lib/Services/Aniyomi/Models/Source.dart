@@ -17,6 +17,7 @@ class ASource extends Source {
     super.itemType,
     super.repo,
     super.hasUpdate,
+    super.isPrivate,
     this.pkgName,
     this.apkName,
   });
@@ -32,6 +33,7 @@ class ASource extends Source {
       versionLast: json['versionLast'],
       repo: json['repo'],
       hasUpdate: json['hasUpdate'] ?? false,
+      isPrivate: json['isPrivate'] ?? (json['isShared'] != null ? !(json['isShared'] as bool) : null),
       itemType: ItemType.values[json['itemType'] ?? 0],
       pkgName: json['pkgName'],
       apkName: json['apkName'],
