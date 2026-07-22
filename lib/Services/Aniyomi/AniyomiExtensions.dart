@@ -467,73 +467,51 @@ class AniyomiExtensions extends Extension {
     if (packageName == null || packageName.isEmpty) {
       throw Exception('Source ID is required for uninstallation.');
     }
-    final type = source.itemType!;
+    final type = source.itemType ??
+        (packageName.contains('animeextension') ? ItemType.anime : ItemType.manga);
 
     try {
-      final useInternal = type == ItemType.anime
-          ? (getVal<bool>('use_internal_anime_extension_loading', defaultValue: false) ?? false)
-          : (getVal<bool>('use_internal_manga_extension_loading', defaultValue: false) ?? false);
-
-      if (useInternal) {
-        final success = await platform.invokeMethod<bool>('uninstallSourceInternal', {
+      try {
+        await platform.invokeMethod<bool>('uninstallSourceInternal', {
           'packageName': packageName,
           'isAnime': type == ItemType.anime,
         });
-        if (success == true) {
-          final isSystemInstalled = await DeviceApps.isAppInstalled(packageName);
-          if (!isSystemInstalled) {
-            getInstalledRx(type).value =
-                getInstalledRx(type).value.where((e) => e.id != s.id).toList();
-            return;
-          }
+      } catch (_) {}
+
+      final isSystemInstalled = await DeviceApps.isAppInstalled(packageName);
+      if (isSystemInstalled) {
+        final success = await DeviceApps.uninstallApp(packageName);
+        if (!success) {
+          throw Exception('Failed to initiate uninstallation for: $packageName');
+        }
+
+        const timeout = Duration(seconds: 10);
+        final start = DateTime.now();
+
+        while (DateTime.now().difference(start) < timeout) {
+          final stillInstalled = await DeviceApps.isAppInstalled(packageName);
+          if (!stillInstalled) break;
+          await Future.delayed(const Duration(milliseconds: 500));
+        }
+
+        final finalCheck = await DeviceApps.isAppInstalled(packageName);
+        if (finalCheck) {
+          throw Exception('Uninstallation timed out or was cancelled by user.');
         }
       }
 
-      final isInstalled = await DeviceApps.isAppInstalled(packageName);
-      if (!isInstalled) {
-        getInstalledRx(type).value =
-            getInstalledRx(type).value.where((e) => e.id != s.id).toList();
-        return;
-      }
+      getInstalledRx(type).value =
+          getInstalledRx(type).value.where((e) => e.id != s.id && e.pkgName != packageName).toList();
 
-      final success = await DeviceApps.uninstallApp(packageName);
-      if (!success) {
-        throw Exception('Failed to initiate uninstallation for: $packageName');
-      }
-
-      const timeout = Duration(seconds: 10);
-      final start = DateTime.now();
-
-      while (DateTime.now().difference(start) < timeout) {
-        final stillInstalled = await DeviceApps.isAppInstalled(packageName);
-        if (!stillInstalled) break;
-        await Future.delayed(const Duration(milliseconds: 500));
-      }
-
-      final finalCheck = await DeviceApps.isAppInstalled(packageName);
-      if (finalCheck) {
-        throw Exception('Uninstallation timed out or was cancelled by user.');
-      }
-
-      final raw = getRawAvailableRx(type).value;
-      final installed = getInstalledRx(type).value;
-      final installedIds = installed.map((e) => e.id).toSet();
-
-      getAvailableRx(type).value = List.unmodifiable(
-        raw.where((e) => !installedIds.contains(e.id)),
-      );
-
-      switch (s.itemType) {
+      switch (type) {
         case ItemType.anime:
           await fetchInstalledAnimeExtensions();
           break;
         case ItemType.manga:
           await fetchInstalledMangaExtensions();
           break;
-        case ItemType.novel:
-          break;
         default:
-          throw Exception('Unsupported item type: ${source.itemType}');
+          break;
       }
 
       Logger.log('Successfully uninstalled package: $packageName');
