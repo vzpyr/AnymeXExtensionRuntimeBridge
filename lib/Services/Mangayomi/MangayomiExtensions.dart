@@ -159,27 +159,7 @@ class MangayomiExtensions extends Extension {
 
   @override
   Future<void> updateSource(Source source) async {
-    final m = source as MSource;
-
-    final res = await _client.get(Uri.parse(m.sourceCodeUrl!));
-
-    if (res.statusCode != 200) {
-      throw Exception("Update download failed");
-    }
-
-    final installed = _loadInstalled(m.itemType!);
-
-    final index = installed.indexWhere((e) => e.id == m.id);
-    if (index == -1) return;
-
-    installed[index] = installed[index]
-      ..sourceCode = res.body
-      ..version = m.version
-      ..hasUpdate = false;
-
-    _saveInstalled(installed, m.itemType!);
-
-    getInstalledRx(m.itemType!).value = List.unmodifiable(installed);
+    await installSource(source);
   }
 
   void _detectUpdates(List<Source> available, ItemType type) {

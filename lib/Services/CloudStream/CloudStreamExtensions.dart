@@ -374,6 +374,9 @@ class CloudStreamExtensions extends Extension {
 
   @override
   Future<void> updateSource(Source source) async {
+    try {
+      await uninstallSource(source);
+    } catch (_) {}
     await installSource(source);
   }
 

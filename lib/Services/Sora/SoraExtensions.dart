@@ -312,35 +312,7 @@ class SoraExtensions extends Extension {
 
   @override
   Future<void> updateSource(Source source) async {
-    final s = source as SSource;
-
-    try {
-      if (s.sourceCodeUrl == null) {
-        throw Exception("Missing sourceCodeUrl");
-      }
-
-      final res = await _client.get(Uri.parse(s.sourceCodeUrl!));
-      if (res.statusCode != 200) {
-        throw Exception("Failed to download update");
-      }
-
-      final installed = _loadInstalled(s.itemType!);
-
-      final index = installed.indexWhere((e) => e.id == s.id);
-      if (index == -1) return;
-
-      installed[index] = installed[index]
-        ..sourceCode = res.body
-        ..version = s.version
-        ..hasUpdate = false;
-
-      _saveInstalled(installed, s.itemType!);
-
-      getInstalledRx(s.itemType!).value = List.unmodifiable(installed);
-    } catch (e) {
-      Logger.log("Update failed ${s.id}: $e");
-      rethrow;
-    }
+    await installSource(source);
   }
 
   void _detectUpdates(List<Source> available, ItemType type) {
