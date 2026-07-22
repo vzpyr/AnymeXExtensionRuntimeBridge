@@ -106,6 +106,12 @@ class AniyomiExtensions extends Extension {
 
       final Map<String, List<ASource>> grouped = {};
       for (final s in parsed) {
+        if (s.pkgName != null && s.pkgName!.isNotEmpty) {
+          try {
+            final isSys = await DeviceApps.isAppInstalled(s.pkgName!);
+            s.isPrivate = !isSys;
+          } catch (_) {}
+        }
         final key = s.pkgName ?? s.name ?? "unknown";
         grouped.putIfAbsent(key, () => []).add(s);
       }
@@ -295,17 +301,22 @@ class AniyomiExtensions extends Extension {
   @override
   Future<void> installSource(Source source, {String? customPath}) async {
     var aSource = source as ASource;
-    if (aSource.apkUrl == null || aSource.apkUrl!.isEmpty) {
-      final type = aSource.itemType ?? ItemType.anime;
-      final available = getAvailableRx(type).value.whereType<ASource>();
-      final repoMatch = available.firstWhereOrNull((s) =>
-          (s.pkgName != null && s.pkgName == aSource.pkgName) ||
-          s.id == aSource.id ||
-          s.name == aSource.name);
-      if (repoMatch != null) {
-        aSource.apkName = repoMatch.apkName;
-        aSource.iconUrl = repoMatch.iconUrl;
-      }
+
+    final allAvailable = [
+      ...getAvailableRx(ItemType.anime).value.whereType<ASource>(),
+      ...getAvailableRx(ItemType.manga).value.whereType<ASource>(),
+    ];
+
+    final repoMatch = allAvailable.firstWhereOrNull((s) =>
+        (s.pkgName != null && aSource.pkgName != null && s.pkgName == aSource.pkgName) ||
+        s.id == aSource.id ||
+        s.name == aSource.name);
+
+    if (repoMatch != null) {
+      aSource.apkName ??= repoMatch.apkName;
+      aSource.iconUrl ??= repoMatch.iconUrl;
+      aSource.itemType ??= repoMatch.itemType;
+      aSource.pkgName ??= repoMatch.pkgName;
     }
 
     if (aSource.apkUrl == null || aSource.apkUrl!.isEmpty) {
@@ -361,9 +372,32 @@ class AniyomiExtensions extends Extension {
           ? (getVal<bool>('use_internal_anime_extension_loading', defaultValue: false) ?? false)
           : (getVal<bool>('use_internal_manga_extension_loading', defaultValue: false) ?? false);
 
-      final bool shouldInstallInternal = aSource.isPrivate != null
-          ? aSource.isPrivate!
-          : useInternalSetting;
+      final allInstalled = [
+        ...getInstalledRx(ItemType.anime).value.whereType<ASource>(),
+        ...getInstalledRx(ItemType.manga).value.whereType<ASource>(),
+      ];
+      final currentlyInstalled = allInstalled.firstWhereOrNull((s) =>
+          (s.pkgName != null && aSource.pkgName != null && s.pkgName == aSource.pkgName) ||
+          s.id == aSource.id ||
+          s.name == aSource.name);
+
+      bool isSystemInstalled = false;
+      if (aSource.pkgName != null && aSource.pkgName!.isNotEmpty) {
+        try {
+          isSystemInstalled = await DeviceApps.isAppInstalled(aSource.pkgName!);
+        } catch (_) {}
+      }
+
+      final bool shouldInstallInternal;
+      if (isSystemInstalled) {
+        shouldInstallInternal = false;
+      } else if (currentlyInstalled != null && currentlyInstalled.isPrivate != null) {
+        shouldInstallInternal = currentlyInstalled.isPrivate!;
+      } else if (aSource.isPrivate != null) {
+        shouldInstallInternal = aSource.isPrivate!;
+      } else {
+        shouldInstallInternal = useInternalSetting;
+      }
 
       if (shouldInstallInternal) {
         final success = await installSourceInternal(source, apkFile.path);
