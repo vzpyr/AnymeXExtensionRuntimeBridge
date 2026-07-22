@@ -354,7 +354,12 @@ class TorrentStreamResolver {
 
   static Future<void> stopActiveStream() async {
     final torrentId = _currentActiveTorrentId;
-    if (torrentId == null) return;
+    if (torrentId == null) {
+      if (_sessions.isEmpty && _isInitialized) {
+        await dispose();
+      }
+      return;
+    }
 
     Logger.log('[TorrentResolver] Player closed — stopping stream: $torrentId');
     await stop(torrentId);
@@ -363,29 +368,67 @@ class TorrentStreamResolver {
 
   static Future<void> stop(int torrentId) async {
     final session = _sessions.remove(torrentId);
-    if (session == null) return;
+    if (session == null) {
+      if (_sessions.isEmpty && _isInitialized) {
+        await dispose();
+      }
+      return;
+    }
 
     try {
-      final engine = LibtorrentFlutter.instance;
-      engine.stopAllStreamsForTorrent(torrentId);
-      engine.removeTorrent(torrentId, deleteFiles: true);
+      if (_isInitialized && LibtorrentFlutter.isInitialized) {
+        final engine = LibtorrentFlutter.instance;
+        engine.stopAllStreamsForTorrent(torrentId);
+        engine.removeTorrent(torrentId, deleteFiles: true);
+      }
       Logger.log('[TorrentResolver] Removed torrent: $torrentId');
     } catch (e) {
       Logger.log('[TorrentResolver] Error removing torrent: $e');
+    }
+
+    if (_sessions.isEmpty) {
+      await dispose();
     }
   }
 
   static Future<void> stopAll() async {
     for (final torrentId in _sessions.keys.toList()) {
-      await stop(torrentId);
+      final session = _sessions.remove(torrentId);
+      if (session != null) {
+        try {
+          if (_isInitialized && LibtorrentFlutter.isInitialized) {
+            final engine = LibtorrentFlutter.instance;
+            engine.stopAllStreamsForTorrent(torrentId);
+            engine.removeTorrent(torrentId, deleteFiles: true);
+          }
+        } catch (_) {}
+      }
     }
     _currentActiveTorrentId = null;
+    await dispose();
   }
 
   static Future<void> dispose() async {
-    await stopAll();
+    final activeTorrentIds = _sessions.keys.toList();
+    for (final torrentId in activeTorrentIds) {
+      _sessions.remove(torrentId);
+      try {
+        if (_isInitialized && LibtorrentFlutter.isInitialized) {
+          final engine = LibtorrentFlutter.instance;
+          engine.stopAllStreamsForTorrent(torrentId);
+          engine.removeTorrent(torrentId, deleteFiles: true);
+        }
+      } catch (_) {}
+    }
+    _currentActiveTorrentId = null;
+
     if (_isInitialized && LibtorrentFlutter.isInitialized) {
-      await LibtorrentFlutter.instance.dispose();
+      try {
+        await LibtorrentFlutter.instance.dispose();
+        Logger.log('[TorrentResolver] Torrent engine disposed and turned off completely.');
+      } catch (e) {
+        Logger.log('[TorrentResolver] Error disposing engine: $e');
+      }
     }
     _isInitialized = false;
   }
