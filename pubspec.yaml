@@ -41,6 +41,7 @@ dependencies:
     file_picker: ^8.1.7
     jni: ^0.15.0
     archive: ^4.0.9
+    libtorrent_flutter: 1.8.5
 
 dev_dependencies:
     flutter_test:
