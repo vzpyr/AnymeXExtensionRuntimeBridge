@@ -10,6 +10,8 @@ import 'Services/Mangayomi/MangayomiExtensions.dart';
 import 'Services/Sora/Models/Source.dart';
 import 'Services/Sora/SoraExtensions.dart';
 import 'anymex_extension_runtime_bridge.dart';
+import 'Settings/KvStore.dart';
+import 'Services/AniyomiRemote/AniyomiRemoteExtensions.dart';
 
 import 'Settings/KvStore.dart';
 
@@ -56,11 +58,16 @@ class ExtensionManager extends GetxController {
     bool force = false,
     Function(String managerId)? onManagerInitializing,
   }) async {
+    final proxyUrl = getVal<String>('aniyomi_remote_proxy_url');
+    final hasProxy = proxyUrl != null && proxyUrl.isNotEmpty;
+
     final isAnymeXRuntimeHostLoaded = await AnymeXRuntimeBridge.isLoaded();
-    if (isAnymeXRuntimeHostLoaded) {
+    if (isAnymeXRuntimeHostLoaded || (Platform.isIOS && hasProxy)) {
       await _registerAndInitializeManagers(
         [
-          if (Platform.isAndroid) ...[
+          if (Platform.isIOS && hasProxy) ...[
+            AniyomiRemoteExtensions(),
+          ] else if (Platform.isAndroid) ...[
             AniyomiExtensions(),
             CloudStreamExtensions(),
             KotatsuExtensions(),
@@ -356,7 +363,7 @@ Extension getSourceManager(Source source) {
   final em = Get.find<ExtensionManager>();
 
   if (source is ASource) {
-    return em.findById('aniyomi') ?? em.findById('aniyomi-desktop')!;
+    return em.findById('aniyomi') ?? em.findById('aniyomi-desktop') ?? em.findById('aniyomi-remote')!;
   }
   if (source is MSource) return em.findById('mangayomi')!;
   if (source is SSource) return em.findById('sora')!;

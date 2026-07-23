@@ -1,3 +1,7 @@
+```
+forked for the purpose of adding support for m-extension-server
+```
+
 # AnymeX Extension Runtime Bridge
 
 A powerful Flutter plugin built around a **unified, runtime-agnostic API** for loading and executing **Aniyomi**, **CloudStream**, **Mangayomi**, and **Sora** extension sources through a single consistent interface.
