@@ -1,7 +1,13 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
+import 'package:path/path.dart' as path;
+import 'package:path_provider/path_provider.dart';
 import '../../Logger.dart';
+import '../../Settings/KvStore.dart';
 import '../../anymex_extension_runtime_bridge.dart';
 import '../Mangayomi/Eval/dart/model/filter.dart';
 import 'Models/Source.dart';
@@ -16,8 +22,119 @@ class AniyomiSourceMethods extends SourceMethods {
 
   bool get isAnime => source.itemType?.index == 1;
 
+  Future<String> _getApkBase64() async {
+    String? apkPath = source.apkPath;
+    if (apkPath == null || !File(apkPath).existsSync()) {
+      final docDir = await getApplicationDocumentsDirectory();
+      final candidate = File(path.join(docDir.path, 'Aniyomi', 'extensions', '${source.pkgName}.apk'));
+      if (candidate.existsSync()) {
+        apkPath = candidate.path;
+      }
+    }
+    if (apkPath == null || !File(apkPath).existsSync()) {
+      throw Exception('APK not found locally. Please reinstall the extension.');
+    }
+    return base64Encode(await File(apkPath).readAsBytes());
+  }
+
+  Future<dynamic> _invokeZero(String method, Map<String, dynamic> params) async {
+    final port = getVal<int>('zero_server_port') ?? 8080;
+    final url = 'http://127.0.0.1:$port/dalvik';
+    final base64Apk = await _getApkBase64();
+    final body = jsonEncode({
+      'method': method,
+      'data': base64Apk,
+      ...params,
+    });
+    final res = await http.post(
+      Uri.parse(url),
+      headers: {'Content-Type': 'application/json'},
+      body: body,
+    ).timeout(const Duration(seconds: 45));
+    if (res.statusCode != 200) {
+      throw Exception('Zero interpreter returned HTTP ${res.statusCode}');
+    }
+    return jsonDecode(res.body);
+  }
+
+  List<String> _parseGenre(dynamic genreData) {
+    if (genreData is String) {
+      return genreData.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+    } else if (genreData is List) {
+      return genreData.map((e) => e.toString()).toList();
+    }
+    return [];
+  }
+
+  Map<String, String>? _parseHeaders(dynamic headersData) {
+    if (headersData is Map) {
+      if (headersData.containsKey('namesAndValues\$okhttp')) {
+        final arr = headersData['namesAndValues\$okhttp'] as List? ?? [];
+        final Map<String, String> parsed = {};
+        for (int i = 0; i < arr.length; i += 2) {
+          if (i + 1 < arr.length) {
+            parsed[arr[i].toString()] = arr[i + 1].toString();
+          }
+        }
+        return parsed.isNotEmpty ? parsed : null;
+      }
+      return headersData.map((key, value) => MapEntry(key.toString(), value.toString()));
+    }
+    return null;
+  }
+
+  Pages _mapPages(Map<String, dynamic> json) {
+    final list = json['animes'] as List? ?? json['mangas'] as List? ?? json['list'] as List? ?? [];
+    final hasNextPage = json['hasNextPage'] ?? false;
+    final mediaList = list.map((e) {
+      final m = Map<String, dynamic>.from(e);
+      return DMedia(
+        title: m['title'] ?? m['name'] ?? '',
+        url: m['url'] ?? m['link'] ?? '',
+        cover: m['thumbnail_url'] ?? m['imageUrl'] ?? '',
+        description: m['description'] ?? '',
+        author: m['author'] ?? '',
+        artist: m['artist'] ?? '',
+        genre: _parseGenre(m['genre']),
+      );
+    }).toList();
+    return Pages(list: mediaList, hasNextPage: hasNextPage);
+  }
+
   @override
   Future<DMedia> getDetail(DMedia media, {SourceParams? parameters}) async {
+    if (Platform.isIOS) {
+      final details = await _invokeZero(isAnime ? 'getDetailsAnime' : 'getDetailsManga', {
+        (isAnime ? 'animeData' : 'mangaData'): {'url': media.url, 'title': media.title},
+      });
+      final m = Map<String, dynamic>.from(details);
+      final episodesRes = await _invokeZero(isAnime ? 'getEpisodeList' : 'getChapterList', {
+        (isAnime ? 'animeData' : 'mangaData'): {'url': media.url, 'title': media.title},
+      });
+      final chaptersList = episodesRes as List? ?? [];
+      final episodes = chaptersList.map((e) {
+        final c = Map<String, dynamic>.from(e);
+        return DEpisode(
+          name: c['name'] ?? '',
+          url: c['url'] ?? '',
+          dateUpload: c['date_upload']?.toString() ?? c['dateUpload']?.toString() ?? '',
+          scanlator: c['scanlator'] ?? '',
+          episodeNumber: c['episode_number']?.toString() ?? c['chapter_number']?.toString() ?? '1',
+        );
+      }).toList();
+
+      return DMedia(
+        title: m['title'] ?? m['name'] ?? media.title,
+        url: m['url'] ?? m['link'] ?? media.url,
+        cover: m['thumbnail_url'] ?? m['imageUrl'] ?? media.cover,
+        description: m['description'] ?? media.description,
+        author: m['author'] ?? media.author,
+        artist: m['artist'] ?? media.artist,
+        genre: _parseGenre(m['genre']),
+        episodes: episodes,
+      );
+    }
+
     final result = await platform.invokeMethod('getDetail', {
       'sourceId': source.id,
       'isAnime': isAnime,
@@ -41,6 +158,13 @@ class AniyomiSourceMethods extends SourceMethods {
 
   @override
   Future<Pages> getLatestUpdates(int page, {SourceParams? parameters}) async {
+    if (Platform.isIOS) {
+      final result = await _invokeZero(isAnime ? 'getLatestAnime' : 'getLatestManga', {
+        'page': page,
+      });
+      return _mapPages(Map<String, dynamic>.from(result));
+    }
+
     final result = await platform.invokeMethod('getLatestUpdates', {
       'sourceId': source.id,
       'isAnime': isAnime,
@@ -56,6 +180,14 @@ class AniyomiSourceMethods extends SourceMethods {
 
   @override
   Future<Pages> getPopular(int page, {SourceParams? parameters}) async {
+    if (Platform.isIOS) {
+      final result = await _invokeZero(isAnime ? 'getPopularAnime' : 'getPopularManga', {
+        'page': page,
+        'search': '',
+      });
+      return _mapPages(Map<String, dynamic>.from(result));
+    }
+
     final result = await platform.invokeMethod('getPopular', {
       'sourceId': source.id,
       'isAnime': isAnime,
@@ -72,6 +204,32 @@ class AniyomiSourceMethods extends SourceMethods {
   @override
   Future<List<Video>> getVideoList(DEpisode episode,
       {SourceParams? parameters}) async {
+    if (Platform.isIOS) {
+      final result = await _invokeZero('getVideoList', {
+        'episodeData': {'url': episode.url, 'name': episode.name},
+      });
+      final list = result as List? ?? [];
+      return list.map((e) {
+        final v = Map<String, dynamic>.from(e);
+        final audios = (v['audios'] as List?)?.map((a) {
+          final tr = Map<String, dynamic>.from(a);
+          return Track(file: tr['file'] ?? '', label: tr['label'] ?? '');
+        }).toList();
+        final subtitles = (v['subtitles'] as List?)?.map((s) {
+          final tr = Map<String, dynamic>.from(s);
+          return Track(file: tr['file'] ?? '', label: tr['label'] ?? '');
+        }).toList();
+        return Video(
+          v['quality'] ?? 'Unknown Server',
+          v['videoUrl'] ?? v['url'] ?? '',
+          v['quality'] ?? 'Unknown Quality',
+          headers: _parseHeaders(v['headers']),
+          audios: audios,
+          subtitles: subtitles,
+        );
+      }).toList();
+    }
+
     final result = await platform.invokeMethod('getVideoList', {
       'sourceId': source.id,
       'isAnime': isAnime,
@@ -92,6 +250,7 @@ class AniyomiSourceMethods extends SourceMethods {
   @override
   Future<void> stopHttpServer() async {
     try {
+      if (Platform.isIOS) return;
       await platform.invokeMethod('stopHttpServer', {
         'sourceId': source.id,
         'isAnime': isAnime,
@@ -104,6 +263,17 @@ class AniyomiSourceMethods extends SourceMethods {
   @override
   Future<List<PageUrl>> getPageList(DEpisode episode,
       {SourceParams? parameters}) async {
+    if (Platform.isIOS) {
+      final result = await _invokeZero('getPageList', {
+        'chapterData': {'url': episode.url, 'name': episode.name},
+      });
+      final list = result as List? ?? [];
+      return list.map((e) {
+        final p = Map<String, dynamic>.from(e);
+        return PageUrl(p['imageUrl'] ?? p['url'] ?? '', headers: _parseHeaders(p['headers']));
+      }).toList();
+    }
+
     final result = await platform.invokeMethod('getPageList', {
       'sourceId': source.id,
       'isAnime': isAnime,
@@ -124,6 +294,14 @@ class AniyomiSourceMethods extends SourceMethods {
   @override
   Future<Pages> search(String query, int page, List filters,
       {SourceParams? parameters}) async {
+    if (Platform.isIOS) {
+      final result = await _invokeZero(isAnime ? 'getSearchAnime' : 'getSearchManga', {
+        'page': page,
+        'search': query,
+      });
+      return _mapPages(Map<String, dynamic>.from(result));
+    }
+
     final mappedFilters = filters.map((f) {
       if (f is Map) return f;
       return _mapClassToAniyomiFilter(f);
@@ -309,6 +487,24 @@ class AniyomiSourceMethods extends SourceMethods {
 
   @override
   Future<List<SourcePreference>> getPreference() async {
+    if (Platform.isIOS) {
+      try {
+        final result = await _invokeZero(isAnime ? 'getPreferencesAnime' : 'getPreferencesManga', {});
+        if (result is List) {
+          return result.map((e) {
+            final map = Map<String, dynamic>.from(e);
+            if (map.containsKey('checkBoxPreference')) map['type'] = 'checkbox';
+            if (map.containsKey('switchPreferenceCompat')) map['type'] = 'switch';
+            if (map.containsKey('listPreference')) map['type'] = 'list';
+            if (map.containsKey('multiSelectListPreference')) map['type'] = 'multi_select';
+            if (map.containsKey('editTextPreference')) map['type'] = 'text';
+            return mapToSourcePreference(map);
+          }).toList();
+        }
+      } catch (_) {}
+      return const [];
+    }
+
     final result = await platform.invokeMethod("getPreference", {
       'sourceId': source.id,
       'isAnime': isAnime,
@@ -325,6 +521,20 @@ class AniyomiSourceMethods extends SourceMethods {
 
   @override
   Future<bool> setPreference(SourcePreference pref, dynamic value) async {
+    if (Platform.isIOS) {
+      try {
+        await _invokeZero(isAnime ? 'setPreferenceAnime' : 'setPreferenceManga', {
+          'preferenceData': {
+            'key': pref.key,
+            'value': value,
+          },
+        });
+        return true;
+      } catch (_) {
+        return false;
+      }
+    }
+
     final result = await platform.invokeMethod('saveSourcePreference', {
       'sourceId': source.id,
       'key': pref.key,

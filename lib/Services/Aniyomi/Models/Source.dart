@@ -3,6 +3,7 @@ import '../../../Models/Source.dart';
 class ASource extends Source {
   String? pkgName;
   String? apkName;
+  String? apkPath;
   List<ASource>? langs;
 
   ASource({
@@ -22,6 +23,7 @@ class ASource extends Source {
     super.supportsPopular,
     this.pkgName,
     this.apkName,
+    this.apkPath,
   });
   factory ASource.fromJson(Map<String, dynamic> json) {
     return ASource(
@@ -41,6 +43,7 @@ class ASource extends Source {
       itemType: ItemType.values[json['itemType'] ?? 0],
       pkgName: json['pkgName'],
       apkName: json['apkName'],
+      apkPath: json['apkPath'],
     );
   }
 
@@ -49,6 +52,7 @@ class ASource extends Source {
     final map = super.toJson();
     map['apkUrl'] = apkName;
     map['pkgName'] = pkgName;
+    if (apkPath != null) map['apkPath'] = apkPath;
     return map;
   }
 

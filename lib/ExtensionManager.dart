@@ -47,6 +47,7 @@ class ExtensionManager extends GetxController {
     await _registerAndInitializeManagers([
       SoraExtensions(),
       MangayomiExtensions(),
+      if (Platform.isIOS) AniyomiExtensions(),
     ]);
 
     await onRuntimeBridgeInitialization();
@@ -70,6 +71,8 @@ class ExtensionManager extends GetxController {
             DesktopAniyomiExtensions(),
             DesktopCloudStreamExtensions(),
             DesktopKotatsuExtensions(),
+          ] else if (Platform.isIOS) ...[
+            AniyomiExtensions(),
           ],
         ],
         insertAtStart: true,

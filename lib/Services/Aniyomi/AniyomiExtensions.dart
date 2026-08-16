@@ -39,7 +39,36 @@ class AniyomiExtensions extends Extension {
   bool get supportsNovel => false;
 
   @override
-  bool get requiresPlugin => true;
+  bool get requiresPlugin => !Platform.isIOS;
+
+  Future<Directory> _getIosExtensionDir() async {
+    final docs = await getApplicationDocumentsDirectory();
+    final dir = Directory(path.join(docs.path, 'Aniyomi', 'extensions'));
+    if (!await dir.exists()) {
+      await dir.create(recursive: true);
+    }
+    return dir;
+  }
+
+  List<ASource> _loadIosInstalled(ItemType type) {
+    final key = 'aniyomi_ios_installed_${type.name}';
+    final raw = getVal<List<String>>(key) ?? [];
+    final list = <ASource>[];
+    for (final item in raw) {
+      try {
+        final src = ASource.fromJson(jsonDecode(item))..managerId = id;
+        if (src.apkPath != null && File(src.apkPath!).existsSync()) {
+          list.add(src);
+        }
+      } catch (_) {}
+    }
+    return list;
+  }
+
+  void _saveIosInstalled(List<ASource> list, ItemType type) {
+    final key = 'aniyomi_ios_installed_${type.name}';
+    setVal(key, list.map((e) => jsonEncode(e.toJson())).toList());
+  }
 
   @override
   Map<String, ExtensionSetting>? get settings => {
@@ -83,6 +112,15 @@ class AniyomiExtensions extends Extension {
 
   @override
   Future<void> fetchInstalledAnimeExtensions() async {
+    if (Platform.isIOS) {
+      final list = _loadIosInstalled(ItemType.anime);
+      getInstalledRx(ItemType.anime).value = list;
+      final available = getRawAvailableRx(ItemType.anime).value.whereType<ASource>().toList();
+      if (available.isNotEmpty) {
+        _detectUpdates(available, ItemType.anime);
+      }
+      return;
+    }
     final path = getVal<String>('custom_anime_apk_path', defaultValue: '') ?? '';
     final list = await _loadInstalled('getInstalledAnimeExtensions', ItemType.anime, path);
     getInstalledRx(ItemType.anime).value = list;
@@ -94,6 +132,15 @@ class AniyomiExtensions extends Extension {
 
   @override
   Future<void> fetchInstalledMangaExtensions() async {
+    if (Platform.isIOS) {
+      final list = _loadIosInstalled(ItemType.manga);
+      getInstalledRx(ItemType.manga).value = list;
+      final available = getRawAvailableRx(ItemType.manga).value.whereType<ASource>().toList();
+      if (available.isNotEmpty) {
+        _detectUpdates(available, ItemType.manga);
+      }
+      return;
+    }
     final path = getVal<String>('custom_manga_apk_path', defaultValue: '') ?? '';
     final list = await _loadInstalled('getInstalledMangaExtensions', ItemType.manga, path);
     getInstalledRx(ItemType.manga).value = list;
@@ -393,6 +440,27 @@ class AniyomiExtensions extends Extension {
         throw Exception('Failed to download APK: HTTP ${res.statusCode}');
       }
 
+      if (Platform.isIOS) {
+        final dir = await _getIosExtensionDir();
+        final apkFile = File(path.join(dir.path, '$packageName.apk'));
+        await apkFile.writeAsBytes(res.bodyBytes);
+        aSource.apkPath = apkFile.path;
+        final current = _loadIosInstalled(aSource.itemType!);
+        final updated = [
+          ...current.where((e) => e.pkgName != aSource.pkgName && e.id != aSource.id),
+          aSource,
+        ];
+        _saveIosInstalled(updated, aSource.itemType!);
+        final avail = getAvailableRx(aSource.itemType!);
+        avail.value = avail.value.where((e) => e.id != aSource.id).toList();
+        if (aSource.itemType == ItemType.anime) {
+          await fetchInstalledAnimeExtensions();
+        } else {
+          await fetchInstalledMangaExtensions();
+        }
+        return;
+      }
+
       final defaultTempDir = await getTemporaryDirectory();
       final apkFileName = '$packageName.apk';
 
@@ -531,6 +599,23 @@ class AniyomiExtensions extends Extension {
         (packageName.contains('animeextension') ? ItemType.anime : ItemType.manga);
 
     try {
+      if (Platform.isIOS) {
+        final current = _loadIosInstalled(type);
+        final toRemove = current.firstWhereOrNull(
+          (e) => e.pkgName == packageName || e.id == s.id,
+        );
+        if (toRemove?.apkPath != null) {
+          final file = File(toRemove!.apkPath!);
+          if (await file.exists()) {
+            await file.delete();
+          }
+        }
+        final updated = current.where((e) => e.pkgName != packageName && e.id != s.id).toList();
+        _saveIosInstalled(updated, type);
+        getInstalledRx(type).value = updated;
+        return;
+      }
+
       try {
         await platform.invokeMethod<bool>('uninstallSourceInternal', {
           'packageName': packageName,
